@@ -1,6 +1,6 @@
 ### Requirements: software
 1. python: `python 3.X`
-2. packages: `numpy`, 'matplotlib'
+2. packages: `numpy`, `matplotlib`
 
 ### Run unit tests
 ```Shell
