@@ -1,3 +1,4 @@
+# coding=utf-8
 import numpy as np
 import time
 import argparse
@@ -57,7 +58,7 @@ def op_wrapper(op):
 
         if name in ['ma', 'ema', 'slope', 'std']:
             return op(x, N)
-        if name in ['sma']:
+        if name in ['sma', 'boll']:
             if M is None:
                 return None
             assert isinstance(M, int), \
@@ -107,9 +108,39 @@ def std(x, N):
     """
     # 当前的k线数不足N根，函数返回空值
     if len(x) < N:
-        return None
+        N = len(x)
 
     return np.std(x[len(x)-N:])
+
+@op_wrapper
+def boll(x, N=20, M=2):
+    """
+    描述：简单移动平均线沿用最简单的统计学方式，将过去某特定时间内的价格取其平均值
+    参数：
+    1、当N为有效值，但当前的k线数不足N根，函数返回空值
+    2、N为0或空值的情况下，函数返回空值
+    3、N可以为变量
+    """
+    # 当前的k线数不足N根，函数返回空值
+    if len(x) < N:
+        N = len(x)
+    boll_st = ma(x, N)
+
+    ub_st = boll_st + M * std(x, N)
+    lb_st = boll_st - M * std(x, N)
+
+    return np.mean(x[len(x)-N:])
+
+@op_wrapper
+def ref(x, N):
+    assert len(x) > 0
+
+    if len(x) == 1:
+        return None
+
+    if len(x) < N + 1:
+        N = len(x)
+    return x[-(N+1)]
 
 @op_wrapper
 def ma(x, N):
@@ -143,6 +174,10 @@ def sma(x, N, M):
         return x[-1]
 
     return sma(x[0:-1], N - 1, M) * (N - M) / N + x[-1] * M / N
+
+def ema_alge(his_val, cur_val, N):
+    assert N > 0
+    return 2/(N+1) * cur_val + (N-1)/(N+1) * his_val
 
 @op_wrapper
 def ema(x, N):
