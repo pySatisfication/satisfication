@@ -14,6 +14,21 @@ _DMM_DEFAULT_M = 1
 _ADX_DEFAULT_N = 14
 _ADX_DEFAULT_M = 1
 
+class Intersection(object):
+    def __init__(self, t_inter, start, end, close_idx):
+        self._type = t_inter
+        self._start_time = start
+        self._end_time = end
+        self._close_idx = close_idx
+        
+    @property
+    def close_idx(self):
+        return self._close_idx
+
+    @property
+    def t_inter(self):
+        return self._type
+
 class Contract(object):
     def __init__(self, m_code):
         self._m_code = m_code
@@ -43,6 +58,8 @@ class Contract(object):
         self._dea = []
         self._macd = []
 
+        self._inters = []
+
         # boll 
         self._boll_st = []
         self._ub_st = []
@@ -59,7 +76,7 @@ class Contract(object):
         self._adx = []
 
         # last_time
-        self._lastest_update_time = '19700101'
+        self._time = []
 
     @property
     def close(self):
@@ -265,11 +282,92 @@ class Option(Contract):
                                  _ADX_DEFAULT_M)
         self._adx.append(round(cur_adx, 2))
 
+    def check_macd_dev(self, item):
+        """
+        parameters:
+            item    // transcation info
+        return:
+            an array with length of 8,
+            index 0~3       // bottom divergence
+            index 4~7       // top divergence
+        """
+        f_dev = [0]*8
+        if len(self._diff) == 1:
+            return f_dev
+
+        if self._diff[-2] < self._dea[-2] and self._diff[-1] > self._dea[-1]:     # jincha
+            # 1. record
+            self._inters.append(Intersection('K', self._time[-1], item.time, len(self._close) - 1))
+            if len(self._inters) < 4:
+                return f_dev 
+
+            # 2. bottom divergence
+            assert self._inters[-2].t_inter == 'D' \
+                and self._inters[-3].t_inter == 'K' \
+                and self._inters[-4].t_inter == 'D'
+
+            # [s, e)
+            c_max1 = max(self._close[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
+            c_max2 = max(self._close[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
+            if c_max1 > c_max2:
+                f_dev[0] = 1
+
+            diff_max1 = max(self._diff[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
+            diff_max2 = max(self._diff[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
+            if diff_max1 <= diff_max2:
+                f_dev[1] = 1
+
+            macd_max1 = max(self._macd[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
+            macd_max2 = max(self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
+            if macd_max1 <= macd_max2:
+                f_dev[2] = 1
+
+            macd_area1 = sum([abs(m) for m in self._macd[self._inters[-2].close_idx:(self._inters[-1].close_idx)]])
+            macd_area2 = sum([abs(m) for m in self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)]])
+            if macd_area1 <= macd_area2:
+                f_dev[3] = 1
+        elif self._diff[-2] > self._dea[-2] and self._diff[-1] < self._dea[-1]:   # sicha
+            # 1. record
+            self._inters.append(Intersection('D', self._time[-1], item.time, len(self._close) - 1))
+            if len(self._inters) < 4:
+                return f_dev
+
+            # 2. top divergence
+            assert self._inters[-2].t_inter == 'K' \
+                and self._inters[-3].t_inter == 'D' \
+                and self._inters[-4].t_inter == 'K'
+
+            # [s, e)
+            c_max1 = max(self._close[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
+            c_max2 = max(self._close[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
+            if c_max1 < c_max2:
+                f_dev[4] = 1
+
+            diff_max1 = max(self._diff[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
+            diff_max2 = max(self._diff[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
+            if diff_max1 >= diff_max2:
+                f_dev[5] = 1
+
+            macd_max1 = max(self._macd[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
+            macd_max2 = max(self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
+            if macd_max1 >= macd_max2:
+                f_dev[6] = 1
+
+            macd_area1 = sum([abs(m) for m in self._macd[self._inters[-2].close_idx:(self._inters[-1].close_idx)]])
+            macd_area2 = sum([abs(m) for m in self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)]])
+            if macd_area1 >= macd_area2:
+                f_dev[7] = 1
+        return f_dev
+
     def iterate(self, item):
         assert isinstance(item, dict)
-        assert item.time > self._lastest_update_time, \
-            'time of item must be greater than lastest updated time:{}'.format(
-            self._lastest_update_time)
+        if len(self._time) > 0:
+            assert item.time > self._time[-1], \
+                'time of item must be greater than lastest updated time:{}'.format(
+                self._lastest_update_time)
+        """
+        step 1. update indicator
+        """
 
         self.update_trans(item)
         self.update_ema()
@@ -281,13 +379,37 @@ class Option(Contract):
 
         self.update_dmi()
 
-        ## TODO strategy
-        # self.check_devi()
+        """
+        step 2. strategy
+        """
+
+        # check devergence
+        f_dev = self.check_macd_dev(item)
+        if f_dev[0]:
+            # TODO GUI
+            print('MACD bottom divergence')
+        if f_dev[1]:
+            print('diff bottom divergence')
+        if f_dev[2]:
+            print('MACD column bottom divergence')
+        if f_dev[3]:
+            print('area of MACD bottom divergence')
+        if f_dev[4]:
+            print('MACD top divergence')
+        if f_dev[5]:
+            print('diff top divergence')
+        if f_dev[6]:
+            print('MACD column top divergence')
+        if f_dev[7]:
+            print('area of MACD column top divergence')
+
         # self.check_boll()
 
+        # debug ema
         if item.time == '202110181459':
             print('final close:', self._close)
             print('final ema12:', self._ema12)
 
-        self._lastest_update_time = item.time
+        # update time finally
+        self._time.append(item.time)
         
