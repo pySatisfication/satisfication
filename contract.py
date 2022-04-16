@@ -1,25 +1,40 @@
 import util as op_util
 
-_RESERVE_DAYS = 3000
+_RESERVE_DAYS = 300
 _EMA12_DEFAULT_N = 12
 _EMA26_DEFAULT_N = 26
 _DEA_DEFAULT_N = 9
+#_DMI_DEFAULT_N = 14
+_TR_DEFAULT_N = 14
+_TR_DEFAULT_M = 1
+_DMP_DEFAULT_N = 14
+_DMP_DEFAULT_M = 1
+_DMM_DEFAULT_N = 14
+_DMM_DEFAULT_M = 1
+_ADX_DEFAULT_N = 14
+_ADX_DEFAULT_M = 1
 
 class Contract(object):
     def __init__(self, m_code):
         self._m_code = m_code
 
-        # base
+        # prices and transaction 
         self._open = []
         self._high = []
         self._low = []
         self._close = []
+        self._volumes = []
+        self._holds = []
+        self._amounts = []
+        self._avg_prices = []
+
         # ma
         self._ma = []
         self._ema = []
         self._ema12 = []
         self._ema26 = []
         self._sma = []
+
         # std
         self._std = []
 
@@ -32,6 +47,16 @@ class Contract(object):
         self._boll_st = []
         self._ub_st = []
         self._lb_st = []
+
+        # dmi
+        self._tr = []
+        self._hd = []
+        self._ld = []
+        self._dmp = []
+        self._dmm = []
+        self._pdi = []
+        self._mdi = []
+        self._adx = []
 
         # last_time
         self._lastest_update_time = '19700101'
@@ -69,7 +94,7 @@ class Option(Contract):
     def m_code(self):
         return self.m_code
 
-    def update_price(self, item):
+    def update_trans(self, item):
         assert item.open is not None and isinstance(item.open, float)
         assert item.high is not None and isinstance(item.high, float)
         assert item.low is not None and isinstance(item.low, float)
@@ -91,27 +116,39 @@ class Option(Contract):
         if len(self._close) > _RESERVE_DAYS:
             self._close = self._close[-_RESERVE_DAYS:]
 
+        self._volumes.append(item.volumes)
+        if len(self._volumes) > _RESERVE_DAYS:
+            self._volumes = self._volumes[-_RESERVE_DAYS:]
+
+        self._holds.append(item.holds)
+        if len(self._holds) > _RESERVE_DAYS:
+            self._holds = self._holds[-_RESERVE_DAYS:]
+
+        self._amounts.append(item.amounts)
+        if len(self._amounts) > _RESERVE_DAYS:
+            self._amounts = self._amounts[-_RESERVE_DAYS:]
+
+        self._avg_prices.append(item.avg_prices)
+        if len(self._avg_prices) > _RESERVE_DAYS:
+            self._avg_prices = self._avg_prices[-_RESERVE_DAYS:]
+
     def update_ema(self):
         """
         calculate ema in sevaral days
         """
-        assert len(self._close) > 0
+        assert len(self._close) > 0, \
+            'close sequence must be non-empty'
+
         # ema in 12 days
-        if len(self._ema12) == 0:
-            self._ema12.append(self._close[0])
-        else:
-            cur_val = op_util.ema_alge(self._ema12[-1], self._close[-1], _EMA12_DEFAULT_N)
-            self._ema12.append(round(cur_val, 2))
+        cur_val = op_util.ema_cc(self._ema12, self._close[-1], _EMA12_DEFAULT_N)
+        self._ema12.append(round(cur_val, 2))
 
         if len(self._ema12) > _RESERVE_DAYS:
             self._ema12 = self._ema12[-_RESERVE_DAYS:]
 
         # 26 days
-        if len(self._ema26) == 0:
-            self._ema26.append(self._close[0])
-        else:
-            cur_val = op_util.ema_alge(self._ema26[-1], self._close[-1], _EMA26_DEFAULT_N)
-            self._ema26.append(round(cur_val, 2))
+        cur_val = op_util.ema_cc(self._ema26, self._close[-1], _EMA26_DEFAULT_N)
+        self._ema26.append(round(cur_val, 2))
 
         if len(self._ema26) > _RESERVE_DAYS:
             self._ema26 = self._ema26[-_RESERVE_DAYS:]
@@ -127,11 +164,8 @@ class Option(Contract):
     def update_dea(self):
         assert len(self._diff) > 0
 
-        if len(self._dea) == 0:
-            self._dea.append(self._diff[-1])
-        else:
-            cur_val = op_util.ema_alge(self._dea[-1], self._diff[-1], _DEA_DEFAULT_N)
-            self._dea.append(cur_val)
+        cur_val = op_util.ema_cc(self._dea, self._diff[-1], _DEA_DEFAULT_N)
+        self._dea.append(round(cur_val, 2))
 
         if len(self._dea) > _RESERVE_DAYS:
             self._dea = self._dea[-_RESERVE_DAYS:]
@@ -167,19 +201,85 @@ class Option(Contract):
         if len(self._lb_st) > _RESERVE_DAYS:
             self._lb_st = self._lb_st[-_RESERVE_DAYS:]
 
+    def update_dmi(self):
+        """
+        first item in tr is max(hl, hr, lr), the following elements 
+        are calulated by SMA(X,N,M)
+        """
+        if len(self._close) <= 1 or len(self._high) <= 1 \
+             or len(self._low) <= 1:
+            return
+        
+        hl = self._high[-1] - self._low[-1]
+        hr = abs(self._high[-1] - op_util.ref(self._close, 1))
+        lr = abs(self._low[-1] - op_util.ref(self._close, 1))
+        cur_tr = max(hl, hr, lr)
+
+        if len(self._tr) == 0:
+            self._tr.append(cur_tr)
+        else:
+            cur_val = op_util.sma_cc(self._tr, cur_tr, _TR_DEFAULT_N, _TR_DEFAULT_M)
+            self._tr.append(round(cur_val, 2))
+
+        if len(self._tr) > _RESERVE_DAYS:
+            self._tr = self._tr[-_RESERVE_DAYS:]
+
+        # hd&ld
+        self._hd.append(self._high[-1] - op_util.ref(self._high, 1))
+        self._ld.append(op_util.ref(self._low, 1) - self._low[-1])
+
+        # dmp
+        if self._hd[-1] > 0 and self._hd[-1] > self._ld[-1]:
+            cur_dmp = self._hd[-1]
+        else:
+            cur_dmp = 0
+        cur_val = op_util.sma_cc(self._dmp, cur_dmp, _DMP_DEFAULT_N, _DMP_DEFAULT_M)
+        self._dmp.append(round(cur_val, 2))
+
+        # dmm
+        if self._ld[-1] > 0 and self._ld[-1] > self._hd[-1]:
+            cur_dmm = self._ld[-1]
+        else:
+            cur_dmm = 0
+        cur_val = op_util.sma_cc(self._dmm, cur_dmm, _DMM_DEFAULT_N, _DMM_DEFAULT_M)
+        self._dmm.append(round(cur_val, 2))
+
+        # pdi
+        if self._tr[-1] == 0.0:
+            d_tr = 1
+        else:
+            d_tr = self._tr[-1]
+        self._pdi.append(self._dmp[-1]*100/d_tr)
+
+        # mdi
+        self._mdi.append(self._dmm[-1]*100/d_tr)
+
+        # adx
+        if self._pdi[-1] + self._mdi[-1] == 0:
+            d_mp = 1
+        else:
+            d_mp = self._pdi[-1] + self._mdi[-1]
+        cur_adx = op_util.sma_cc(self._adx, 
+                                 (self._pdi[-1]-self._mdi[-1])/d_mp,
+                                 _ADX_DEFAULT_N, 
+                                 _ADX_DEFAULT_M)
+        self._adx.append(round(cur_adx, 2))
+
     def iterate(self, item):
         assert isinstance(item, dict)
         assert item.time > self._lastest_update_time, \
             'time of item must be greater than lastest updated time:{}'.format(
             self._lastest_update_time)
 
-        self.update_price(item)
+        self.update_trans(item)
         self.update_ema()
         self.update_boll()
 
         self.update_diff()
         self.update_dea()
         self.update_macd()
+
+        self.update_dmi()
 
         ## TODO strategy
         # self.check_devi()

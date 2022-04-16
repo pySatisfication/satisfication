@@ -67,6 +67,7 @@ def op_wrapper(op):
             if M <= 0:
                 return None
             return op(x, N, M)
+        return op(x, N)
     return func_op
 
 @op_wrapper
@@ -135,11 +136,9 @@ def boll(x, N=20, M=2):
 def ref(x, N):
     assert len(x) > 0
 
-    if len(x) == 1:
-        return None
-
     if len(x) < N + 1:
-        N = len(x)
+        return 0.0
+
     return x[-(N+1)]
 
 @op_wrapper
@@ -175,9 +174,26 @@ def sma(x, N, M):
 
     return sma(x[0:-1], N - 1, M) * (N - M) / N + x[-1] * M / N
 
-def ema_alge(his_val, cur_val, N):
+def sma_cc(x, cur_val, N, M):
+    """
+    sma by cache
+    """
+    assert N > 0 and M > 0 and N > M, \
+        'N:{}, M:{}'.format(N, M)
+
+    if len(x) == 0:
+        return cur_val
+    return M/N * cur_val + (N-M)/N * x[-1]
+
+def ema_cc(x, cur_val, N):
+    """
+    ema by cache
+    """
     assert N > 0
-    return 2/(N+1) * cur_val + (N-1)/(N+1) * his_val
+
+    if len(x) == 0:
+        return cur_val
+    return 2/(N+1) * cur_val + (N-1)/(N+1) * x[-1]
 
 @op_wrapper
 def ema(x, N):

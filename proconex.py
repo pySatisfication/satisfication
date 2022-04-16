@@ -18,6 +18,7 @@ import logging
 #import Queue
 import sys
 import threading
+import traceback
 
 if sys.version > '3':
     import queue as Queue
@@ -53,8 +54,9 @@ class WorkEnv(object):
     def possiblyRaiseError(self):
         """"Provided that `hasFailed` raise `exc_info`, otherwise do nothing."""
         if self.hasFailed:
-            _log.debug(u"raising notified error: %s %s %s", self.exc_info[0], self.exc_info[1], self.exc_info[2])
-            #raise self.exc_info[0], self.exc_info[1], self.exc_info[2]
+            _log.debug(u"raising notified error: %s %s", self.exc_info[0], self.exc_info[1])
+            for filename, linenum, funcname, source in traceback.extract_tb(self.exc_info[2]):
+                _log.debug("%-23s:%s '%s' in %s", filename, linenum, source, funcname)
 
     @property
     def hasFailed(self):

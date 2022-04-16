@@ -84,10 +84,10 @@ class TransDProducer(px.Producer):
                                 high = float(d_singl[4]),
                                 low = float(d_singl[5]),
                                 close = float(d_singl[6]),
-                                sales = float(d_singl[7]),
-                                hold = int(d_singl[8]),
-                                amount = float(d_singl[9]),
-                                ave_price = float(d_singl[10])
+                                volumes = float(d_singl[7]),
+                                holds = float(d_singl[8]),
+                                amounts = float(d_singl[9]),
+                                avg_prices = float(d_singl[10])
                             )
                 #time.sleep(_PRODUCTION_DELAY)
 
