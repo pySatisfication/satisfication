@@ -309,22 +309,22 @@ class Option(Contract):
             # [s, e)
             c_max1 = max(self._close[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
             c_max2 = max(self._close[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
-            if c_max1 > c_max2:
+            if c_max1 <= c_max2:
                 f_dev[0] = 1
 
             diff_max1 = max(self._diff[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
             diff_max2 = max(self._diff[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
-            if diff_max1 <= diff_max2:
+            if diff_max1 > diff_max2:
                 f_dev[1] = 1
 
             macd_max1 = max(self._macd[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
             macd_max2 = max(self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
-            if macd_max1 <= macd_max2:
+            if macd_max1 > macd_max2:
                 f_dev[2] = 1
 
             macd_area1 = sum([abs(m) for m in self._macd[self._inters[-2].close_idx:(self._inters[-1].close_idx)]])
             macd_area2 = sum([abs(m) for m in self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)]])
-            if macd_area1 <= macd_area2:
+            if macd_area1 > macd_area2:
                 f_dev[3] = 1
         elif self._diff[-2] > self._dea[-2] and self._diff[-1] < self._dea[-1]:   # sicha
             # 1. record
@@ -340,22 +340,22 @@ class Option(Contract):
             # [s, e)
             c_max1 = max(self._close[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
             c_max2 = max(self._close[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
-            if c_max1 < c_max2:
+            if c_max1 >= c_max2:
                 f_dev[4] = 1
 
             diff_max1 = max(self._diff[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
             diff_max2 = max(self._diff[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
-            if diff_max1 >= diff_max2:
+            if diff_max1 < diff_max2:
                 f_dev[5] = 1
 
             macd_max1 = max(self._macd[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
             macd_max2 = max(self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
-            if macd_max1 >= macd_max2:
+            if macd_max1 < macd_max2:
                 f_dev[6] = 1
 
             macd_area1 = sum([abs(m) for m in self._macd[self._inters[-2].close_idx:(self._inters[-1].close_idx)]])
             macd_area2 = sum([abs(m) for m in self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)]])
-            if macd_area1 >= macd_area2:
+            if macd_area1 < macd_area2:
                 f_dev[7] = 1
         return f_dev
 
