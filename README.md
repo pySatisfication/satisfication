@@ -2,6 +2,11 @@
 1. python: `python 3.X`
 2. packages: `numpy`, `matplotlib`
 
+### Run new main function
+```Shell
+python main.py --trans_data_path=trans_data.txt
+```
+
 ### Run unit tests
 ```Shell
 # perform robustness testing
