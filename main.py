@@ -1,22 +1,18 @@
 # coding=utf-8
 import sys
 import time
-import threading
 import argparse
 import logging
 from easydict import EasyDict as edict
 
+import strategy as stg
 import proconex as px
-import contract as ct
-import util as op_util
+import utils.util as op_util
 
 _PRODUCTION_DELAY = 0.05
 _CONSUMPTION_DELAY = 0.05
 _DEFAULT_PRODUCER_NUM = 1
 _DEFAULT_CONSUMER_NUM = 1
-
-_ct_lock = threading.Lock()
-_ct_data = {}
 
 def parse_args():
     """
@@ -98,21 +94,10 @@ class TransDConsumer(px.Consumer):
     def __init__(self, name):
         assert name
         super(TransDConsumer, self).__init__(name)
+        self._stg = stg.SimpleStrategy('option_stg_v1')
 
     def consume(self, item):
-        _ct_lock.acquire()
-
-        #self.log.info(u"consume item: %s", item.time)
-        #self.log.info(u"item type: %s", item.c_code)
-        if item.c_code in _ct_data:
-            option = _ct_data[item.c_code]
-        else:
-            option = ct.Option(item.c_code)
-            _ct_data[item.c_code] = option
-        option.iterate(item)
-        #time.sleep(_CONSUMPTION_DELAY)
-
-        _ct_lock.release()
+        self._stg.step(item)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
@@ -134,9 +119,9 @@ if __name__ == '__main__':
     worker = px.Worker(producers, consumers, 1000)
     worker.work()
 
-    print()
-    print('============EMA(N=12)==============') 
-    X = _ct_data['IC2206'].close
-    for day in range(len(X)):
-        print("day {}: non-recursion: {}".format(day+1, op_util.ema(X[:day+1], 12)))
+    #print()
+    #print('============EMA(N=12)==============') 
+    #X = _ct_data['IC2206'].close
+    #for day in range(len(X)):
+    #    print("day {}: non-recursion: {}".format(day+1, op_util.ema(X[:day+1], 12)))
 

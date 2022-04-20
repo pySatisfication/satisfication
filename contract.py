@@ -1,4 +1,8 @@
-import util as op_util
+import json
+from easydict import EasyDict as edict
+
+import utils.util as op_util
+import utils.redis_ts_util as rtu
 
 _RESERVE_DAYS = 300
 _EMA12_DEFAULT_N = 12
@@ -13,6 +17,7 @@ _DMM_DEFAULT_N = 14
 _DMM_DEFAULT_M = 1
 _ADX_DEFAULT_N = 14
 _ADX_DEFAULT_M = 1
+_GUPPY_DEFAULT_N = 2
 
 class Intersection(object):
     def __init__(self, t_inter, start, end, close_idx):
@@ -29,6 +34,9 @@ class Intersection(object):
     def t_inter(self):
         return self._type
 
+    def print(self):
+        return 'type:{},start:{},end:{},close_idx:{}'.format(self._type, self._start_time, self._end_time, self._close_idx)
+
 class Contract(object):
     def __init__(self, m_code):
         self._m_code = m_code
@@ -44,14 +52,14 @@ class Contract(object):
         self._avg_prices = []
 
         # ma
-        self._ma = []
-        self._ema = []
+        #self._ma = []
+        #self._ema = []
         self._ema12 = []
         self._ema26 = []
-        self._sma = []
+        #self._sma = []
 
         # std
-        self._std = []
+        #self._std = []
 
         # macd
         self._diff = []
@@ -64,6 +72,11 @@ class Contract(object):
         self._boll_st = []
         self._ub_st = []
         self._lb_st = []
+        self._trend_to_rise = []
+        self._trend_to_fall = []
+        self._gravity_line = []
+        self._of_f_ub_st = []
+        self._of_f_lb_st = []
 
         # dmi
         self._tr = []
@@ -74,6 +87,13 @@ class Contract(object):
         self._pdi = []
         self._mdi = []
         self._adx = []
+
+        # guppy mean line
+        self._boll_st_s1 = []
+        self._boll_st_s2 = []
+        self._boll_st_s3 = []
+        self._boll_st_s4 = []
+        self._boll_st_s5 = []
 
         # last_time
         self._time = []
@@ -102,10 +122,31 @@ class Contract(object):
     def boll_st(self):
         return self._boll_st
 
+    def check_data_valid(self):
+        for k1, v1 in self.__dict__.items():
+            if not isinstance(v, list):
+                continue
+            for k2, v2 in self.__dict__.items():
+                if not isinstance(v, list) or k1 == k2:
+                    continue
+                if len(v1) != len(v2):
+                    raise ValueError('inconsistent data length')
+
+    def clct_all_var(self):
+        m_var = {}
+        for k, v in self.__dict__.items():
+            if not isinstance(v, list) or len(v) == 0:
+                continue
+            if k == '_inters':
+                continue
+            m_var[k] = v[-1]
+        return json.dumps(m_var)
+
 class Option(Contract):
     def __init__(self, m_code):
         assert m_code is not None
         super(Option, self).__init__(m_code=m_code)
+        self._type = 'option'
 
     @property
     def m_code(self):
@@ -218,13 +259,70 @@ class Option(Contract):
         if len(self._lb_st) > _RESERVE_DAYS:
             self._lb_st = self._lb_st[-_RESERVE_DAYS:]
 
+        cur_gl = round((self._high[-1] + self._low[-1] + self._open[-1] + 3 * self._close[-1]) / 6.0, 2)
+        self._gravity_line.append(cur_gl)
+
+        if len(self._boll_st) == 1:
+            self._trend_to_rise.append(0)
+            self._trend_to_fall.append(0)
+            self._of_f_ub_st.append(0)
+            self._of_f_lb_st.append(0)
+            return
+
+        # BOLL_ST>=REF(BOLL_ST,1) AND UB_ST>REF(UB_ST,1)
+        if self._boll_st[-1] > op_util.ref(self._boll_st, 1) \
+            and self._ub_st[-1] > op_util.ref(self._ub_st, 1):
+            self._trend_to_rise.append(1)
+        else:
+            self._trend_to_rise.append(0)
+
+        if self._boll_st[-1] <= op_util.ref(self._boll_st, 1) \
+            and self._lb_st[-1] > op_util.ref(self._lb_st, 1):
+            self._trend_to_fall.append(1)
+        else:
+            self._trend_to_fall.append(0)
+
+        self._of_f_ub_st.append(1 if cur_gl > self._ub_st[-1] else 0)
+        self._of_f_lb_st.append(1 if cur_gl < self._ub_st[-1] else 0)
+
+    def update_guppyline(self, N = 2):
+        self._boll_st_s1 = self._boll_st
+
+        if len(self._boll_st_s1) < N:
+            N = len(self._boll_st_s1)
+
+        self._boll_st_s2.append(op_util.ma(self._boll_st_s1, N))
+        if len(self._boll_st_s2) > _RESERVE_DAYS:
+            self._boll_st_s2 = self._boll_st_s2[-_RESERVE_DAYS:]
+
+        self._boll_st_s3.append(op_util.ma(self._boll_st_s2, N))
+        if len(self._boll_st_s3) > _RESERVE_DAYS:
+            self._boll_st_s3 = self._boll_st_s3[-_RESERVE_DAYS:]
+
+        self._boll_st_s4.append(op_util.ma(self._boll_st_s3, N))
+        if len(self._boll_st_s3) > _RESERVE_DAYS:
+            self._boll_st_s4 = self._boll_st_s4[-_RESERVE_DAYS:]
+
+        self._boll_st_s5.append(op_util.ma(self._boll_st_s4, N))
+        if len(self._boll_st_s5) > _RESERVE_DAYS:
+            self._boll_st_s5 = self._boll_st_s5[-_RESERVE_DAYS:]
+
     def update_dmi(self):
         """
         first item in tr is max(hl, hr, lr), the following elements 
         are calulated by SMA(X,N,M)
         """
-        if len(self._close) <= 1 or len(self._high) <= 1 \
-             or len(self._low) <= 1:
+        if len(self._close) < 2 \
+            or len(self._high) < 2 \
+            or len(self._low) < 2:
+            self._tr.append(0.0)
+            self._hd.append(0.0)
+            self._ld.append(0.0)
+            self._dmp.append(0.0)
+            self._dmm.append(0.0)
+            self._pdi.append(0.0)
+            self._mdi.append(0.0)
+            self._adx.append(0.0)
             return
         
         hl = self._high[-1] - self._low[-1]
@@ -372,6 +470,8 @@ class Option(Contract):
         self.update_trans(item)
         self.update_ema()
         self.update_boll()
+        self.update_guppyline()
+        #self.update_parting()
 
         self.update_diff()
         self.update_dea()
@@ -387,21 +487,21 @@ class Option(Contract):
         f_dev = self.check_macd_dev(item)
         if f_dev[0]:
             # TODO GUI
-            print('MACD bottom divergence')
+            print('MACD bottom divergence', [item.print() for item in self._inters[-4:]])
         if f_dev[1]:
-            print('diff bottom divergence')
+            print('diff bottom divergence', [item.print() for item in self._inters[-4:]])
         if f_dev[2]:
-            print('MACD column bottom divergence')
+            print('MACD column bottom divergence', [item.print() for item in self._inters[-4:]])
         if f_dev[3]:
-            print('area of MACD bottom divergence')
+            print('area of MACD bottom divergence', [item.print() for item in self._inters[-4:]])
         if f_dev[4]:
-            print('MACD top divergence')
+            print('MACD top divergence', [item.print() for item in self._inters[-4:]])
         if f_dev[5]:
-            print('diff top divergence')
+            print('diff top divergence', [item.print() for item in self._inters[-4:]])
         if f_dev[6]:
-            print('MACD column top divergence')
+            print('MACD column top divergence', [item.print() for item in self._inters[-4:]])
         if f_dev[7]:
-            print('area of MACD column top divergence')
+            print('area of MACD column top divergence', [item.print() for item in self._inters[-4:]])
 
         # self.check_boll()
 
@@ -410,6 +510,51 @@ class Option(Contract):
             print('final close:', self._close)
             print('final ema12:', self._ema12)
 
-        # update time finally
         self._time.append(item.time)
-        
+
+        # save data for current step
+        try:
+            j_data = self.clct_all_var()
+            if rtu.add(self._m_code, item.time, j_data):
+                print('write to redis successfully:', item.time)
+        except ValueError as e:
+            print(e)
+
+if __name__ == '__main__':
+    cc = Option('code_3')
+    t_data = ['3,IC2206,202110180929,6679.0,6679.0,6679.0,6679.0,3,3,20037.0,6679.0',
+              '3,IC2206,202110180930,6666.6,6688.8,6666.0,6675.0,32,34,213660.00000000003,6676.875000000001',
+              '3,IC2206,202110180931,6673.8,6675.4,6660.0,6660.0,33,67,220091.59999999998,6669.442424242424',
+              '3,IC2206,202110180932,6661.8,6661.8,6650.0,6651.8,20,87,133101.4,6655.07',
+              '3,IC2206,202110180933,6650.0,6655.2,6647.0,6647.2,28,115,186226.6,6650.95',
+              '3,IC2206,202110180934,6647.6,6654.6,6647.6,6654.0,11,126,73167.0,6651.545454545455',
+              '3,IC2206,202110180935,6649.6,6665.8,6649.4,6659.6,18,144,119841.20000000001,6657.844444444445',
+              '3,IC2206,202110180936,6662.2,6664.6,6648.8,6652.6,28,172,186382.20000000004,6656.507142857145',
+              '3,IC2206,202110180937,6654.4,6660.4,6650.4,6659.2,30,202,199699.00000000003,6656.633333333334',
+              '3,IC2206,202110180938,6666.0,6666.0,6645.0,6645.0,27,229,179653.2,6653.822222222223',
+              '3,IC2206,202110180939,6647.0,6652.4,6640.0,6640.0,21,250,139579.0,6646.619047619048',
+              '3,IC2206,202110180940,6640.0,6655.4,6639.8,6650.4,40,290,265889.99999999994,6647.249999999998',
+              '3,IC2206,202110180941,6655.2,6655.2,6643.4,6649.8,35,325,232663.79999999996,6647.537142857142',
+              '3,IC2206,202110180942,6645.2,6648.8,6641.0,6642.8,49,374,325595.3999999999,6644.804081632651',
+              '3,IC2206,202110180943,6639.8,6645.6,6639.2,6645.6,29,402,192609.2,6641.696551724139']
+
+    for line in t_data:
+        items = line.split(',')
+        d_data = edict(m_code = int(items[0]), 
+                       c_code = items[1],
+                       time = items[2],
+                       open = float(items[3]),
+                       high = float(items[4]),
+                       low = float(items[5]),
+                       close = float(items[6]),
+                       volumes = float(items[7]),
+                       holds = float(items[8]),
+                       amounts = float(items[9]),
+                       avg_prices = float(items[10])
+                    )
+        cc.iterate(d_data)
+        res = cc.clct_all_var()
+        j_res = json.loads(res)
+        for k, v in j_res.items():
+            print(k + '\t' + str(v))
+
