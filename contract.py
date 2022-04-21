@@ -99,6 +99,10 @@ class Contract(object):
         self._time = []
 
     @property
+    def inters(self):
+        return self._inters
+
+    @property
     def close(self):
         return self._close
 
@@ -137,7 +141,7 @@ class Contract(object):
         for k, v in self.__dict__.items():
             if not isinstance(v, list) or len(v) == 0:
                 continue
-            if k == '_inters':
+            if k in ['_inters', '_cur_t_data']:
                 continue
             m_var[k] = v[-1]
         return json.dumps(m_var)
@@ -147,46 +151,58 @@ class Option(Contract):
         assert m_code is not None
         super(Option, self).__init__(m_code=m_code)
         self._type = 'option'
+        self._cur_t_data = None
+
+    @property
+    def t_data(self):
+        return self._cur_t_data
+
+    @t_data.setter
+    def t_data(self, value):
+        if isinstance(value, dict):
+            self._cur_t_data = value
+        else:
+            raise ValueError('value error')
 
     @property
     def m_code(self):
         return self.m_code
 
-    def update_trans(self, item):
-        assert item.open is not None and isinstance(item.open, float)
-        assert item.high is not None and isinstance(item.high, float)
-        assert item.low is not None and isinstance(item.low, float)
-        assert item.close is not None and isinstance(item.close, float)
+    def update_trans(self):
+        assert self.t_data.open is not None and isinstance(self.t_data.open, float)
+        assert self.t_data.high is not None and isinstance(self.t_data.high, float)
+        assert self.t_data.low is not None and isinstance(self.t_data.low, float)
+        assert self.t_data.close is not None and isinstance(self.t_data.close, float)
 
-        self._open.append(item.open)
+        self._open.append(self.t_data.open)
         if len(self._open) > _RESERVE_DAYS:
             self._open = self._open[-_RESERVE_DAYS:]
 
-        self._high.append(item.high)
+        self._high.append(self.t_data.high)
         if len(self._high) > _RESERVE_DAYS:
             self._high = self._high[-_RESERVE_DAYS:]
 
-        self._low.append(item.low)
+        self._low.append(self.t_data.low)
         if len(self._low) > _RESERVE_DAYS:
             self._low = self._low[-_RESERVE_DAYS:]
 
-        self._close.append(item.close)
+        self._close.append(self.t_data.close)
         if len(self._close) > _RESERVE_DAYS:
             self._close = self._close[-_RESERVE_DAYS:]
 
-        self._volumes.append(item.volumes)
+        self._volumes.append(self.t_data.volumes)
         if len(self._volumes) > _RESERVE_DAYS:
             self._volumes = self._volumes[-_RESERVE_DAYS:]
 
-        self._holds.append(item.holds)
+        self._holds.append(self.t_data.holds)
         if len(self._holds) > _RESERVE_DAYS:
             self._holds = self._holds[-_RESERVE_DAYS:]
 
-        self._amounts.append(item.amounts)
+        self._amounts.append(self.t_data.amounts)
         if len(self._amounts) > _RESERVE_DAYS:
             self._amounts = self._amounts[-_RESERVE_DAYS:]
 
-        self._avg_prices.append(item.avg_prices)
+        self._avg_prices.append(self.t_data.avg_prices)
         if len(self._avg_prices) > _RESERVE_DAYS:
             self._avg_prices = self._avg_prices[-_RESERVE_DAYS:]
 
@@ -380,14 +396,12 @@ class Option(Contract):
                                  _ADX_DEFAULT_M)
         self._adx.append(round(cur_adx, 2))
 
-    def check_macd_dev(self, item):
+    def check_macd_dev(self):
         """
-        parameters:
-            item    // transcation info
         return:
             an array with length of 8,
-            index 0~3       // bottom divergence
-            index 4~7       // top divergence
+            index 0~3       # bottom divergence
+            index 4~7       # top divergence
         """
         f_dev = [0]*8
         if len(self._diff) == 1:
@@ -395,7 +409,7 @@ class Option(Contract):
 
         if self._diff[-2] < self._dea[-2] and self._diff[-1] > self._dea[-1]:     # jincha
             # 1. record
-            self._inters.append(Intersection('K', self._time[-1], item.time, len(self._close) - 1))
+            self._inters.append(Intersection('K', self._time[-1], self.t_data.time, len(self._close) - 1))
             if len(self._inters) < 4:
                 return f_dev 
 
@@ -426,7 +440,7 @@ class Option(Contract):
                 f_dev[3] = 1
         elif self._diff[-2] > self._dea[-2] and self._diff[-1] < self._dea[-1]:   # sicha
             # 1. record
-            self._inters.append(Intersection('D', self._time[-1], item.time, len(self._close) - 1))
+            self._inters.append(Intersection('D', self._time[-1], self.t_data.time, len(self._close) - 1))
             if len(self._inters) < 4:
                 return f_dev
 
@@ -457,17 +471,19 @@ class Option(Contract):
                 f_dev[7] = 1
         return f_dev
 
-    def iterate(self, item):
-        assert isinstance(item, dict)
+    def iterate(self, data):
+        assert isinstance(data, dict)
+
+        self.t_data = data
         if len(self._time) > 0:
-            assert item.time > self._time[-1], \
-                'time of item must be greater than lastest updated time:{}'.format(
+            assert data.time > self._time[-1], \
+                'time of data must be greater than lastest updated time:{}'.format(
                 self._lastest_update_time)
+        self._time.append(data.time)
         """
         step 1. update indicator
         """
-
-        self.update_trans(item)
+        self.update_trans()
         self.update_ema()
         self.update_boll()
         self.update_guppyline()
@@ -476,47 +492,18 @@ class Option(Contract):
         self.update_diff()
         self.update_dea()
         self.update_macd()
-
         self.update_dmi()
 
-        """
-        step 2. strategy
-        """
-
-        # check devergence
-        f_dev = self.check_macd_dev(item)
-        if f_dev[0]:
-            # TODO GUI
-            print('MACD bottom divergence', [item.print() for item in self._inters[-4:]])
-        if f_dev[1]:
-            print('diff bottom divergence', [item.print() for item in self._inters[-4:]])
-        if f_dev[2]:
-            print('MACD column bottom divergence', [item.print() for item in self._inters[-4:]])
-        if f_dev[3]:
-            print('area of MACD bottom divergence', [item.print() for item in self._inters[-4:]])
-        if f_dev[4]:
-            print('MACD top divergence', [item.print() for item in self._inters[-4:]])
-        if f_dev[5]:
-            print('diff top divergence', [item.print() for item in self._inters[-4:]])
-        if f_dev[6]:
-            print('MACD column top divergence', [item.print() for item in self._inters[-4:]])
-        if f_dev[7]:
-            print('area of MACD column top divergence', [item.print() for item in self._inters[-4:]])
-
-        # self.check_boll()
-
         # debug ema
-        if item.time == '202110181459':
+        if data.time == '202110181459':
             print('final close:', self._close)
             print('final ema12:', self._ema12)
 
-        self._time.append(item.time)
-
-        # save data for current step
+        # step 2. save data in time-series for current step
         try:
             j_data = self.clct_all_var()
-            if rtu.add(self._m_code, item.time, j_data):
-                print('write to redis successfully:', item.time)
+            if rtu.add(self._m_code, data.time, j_data):
+                print('write to redis successfully:', data.time)
         except ValueError as e:
             print(e)
 
