@@ -53,12 +53,22 @@ class SimpleStrategy(BaseStrategy):
         self.stg_macd_check(item)
         # boll
         self.stg_boll_check(item)
+        # dmi
+        self.stg_dmi_check(item)
+        # parting
+        self.stg_parting_check(item)
 
         self._ct_lock.release()
 
     def stg_boll_check(self, obj):
-        pass
+        obj.check_boll()
+
+    def stg_dmi_check(self, obj):
+        obj.check_dmi()
     
+    def stg_parting_check(self, obj):
+        obj.check_parting()
+
     def stg_macd_check(self, obj):
         """
         step strategy

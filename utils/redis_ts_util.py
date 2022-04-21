@@ -30,7 +30,7 @@ def add(key, timestamps, value):
         tseries.add_many(key, series_data)
     except RepeatedValueError as e:
         print(e)
-        return True
+        return False
     except RedisTimeSeriesError as e:
         print(e)
         raise RedisTimeSeriesError('save error')

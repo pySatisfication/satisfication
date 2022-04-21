@@ -52,7 +52,7 @@ def op_wrapper(op):
         if len(x) == 0:
             return None
         for item in x:
-            if (not isinstance(item, float) and not isinstance(item, int)) or item < 0:
+            if (not isinstance(item, float) and not isinstance(item, int)):
                 raise TypeError('type {} does not match original type {} or value less than 0'.format(
                             type(item), 'float/integer'))
 

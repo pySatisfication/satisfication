@@ -95,6 +95,10 @@ class Contract(object):
         self._boll_st_s4 = []
         self._boll_st_s5 = []
 
+        # parting
+        self._hh = []
+        self._ll = []
+
         # last_time
         self._time = []
 
@@ -121,6 +125,26 @@ class Contract(object):
     @property
     def sma(self):
         return self._sma
+
+    @property
+    def t_to_rise(self):
+        return self._trend_to_rise
+
+    @property
+    def t_to_fall(self):
+        return self._trend_to_fall
+
+    @property
+    def gravity_line(self):
+        return self._gravity_line
+
+    @property
+    def of_f_ub_st(self):
+        return self._of_f_ub_st
+
+    @property
+    def of_f_lb_st(self):
+        return self._of_f_lb_st
 
     @property
     def boll_st(self):
@@ -301,6 +325,14 @@ class Option(Contract):
         self._of_f_ub_st.append(1 if cur_gl > self._ub_st[-1] else 0)
         self._of_f_lb_st.append(1 if cur_gl < self._ub_st[-1] else 0)
 
+    def check_boll(self):
+        f_boll = [0]*4
+        f_boll[0] = self._trend_to_rise[-1]
+        f_boll[1] = self._trend_to_fall[-1]
+        f_boll[2] = self._of_f_ub_st[-1]
+        f_boll[3] = self._of_f_lb_st[-1]
+        return f_boll
+
     def update_guppyline(self, N = 2):
         self._boll_st_s1 = self._boll_st
 
@@ -323,14 +355,51 @@ class Option(Contract):
         if len(self._boll_st_s5) > _RESERVE_DAYS:
             self._boll_st_s5 = self._boll_st_s5[-_RESERVE_DAYS:]
 
+    def update_parting(self):
+        if len(self._close) <= 2:
+            self._hh.append(self._high[-1])
+            self._ll.append(self._low[-1])
+            return
+
+        h_1, h_2, h_3 = self._hh[-2], self._hh[-1], self._high[-1]
+        l_1, l_2, l_3 = self._ll[-2], self._ll[-1], self._low[-1]
+        if (h_2 < h_3 or l_2 > l_3) and (h_2 > h_3 or l_2 < l_3):
+           # case 0
+           self._hh.append(h_3)
+           self._ll.append(l_3)
+        elif (h_2 >= h_3 and l_2 <= l_3) or (h_2 <= h_3 and l_2 >= l_3):
+            if (h_2 > h_1 and l_2 >= l_1) or (h_2 >= h_1 and l_2 > l_1):
+                # case 1, upward
+                self._hh.append(max(h_2, h_3))
+                self._ll.append(max(l_2, l_3))
+            elif (h_2 < h_1 and l_2 <= l_1) or (h_2 <= h_1 and l_2 < l_1):
+                # case 2, downward
+                self._hh.append(min(h_2, h_3))
+                self._ll.append(min(l_2, l_3))
+            else:
+                # special judgement
+                n = 3
+                t_hh3 = h_3
+                t_ll3 = l_3
+                while n <= len(self._hh):
+                    if (h_2 > self._hh[-n] and l_2 >= self._ll[-n]) or \
+                       (h_2 >= self._hh[-n] and l_2 > self._ll[-n]):
+                        t_hh3 = max(h_2, h_3)
+                        t_ll3 = max(l_2, l_3)
+                    elif (h_2 < self._hh[-n] and l_2 <= self._ll[-n]) or \
+                         (h_2 <= self._hh[-n] and l_2 < self._ll[-n]):
+                        t_hh3 = min(h_2, h_3)
+                        t_ll3 = min(l_2, l_3)
+                    n += 1
+                self._hh.append(t_hh3)
+                self._ll.append(t_ll3)
+
     def update_dmi(self):
         """
         first item in tr is max(hl, hr, lr), the following elements 
         are calulated by SMA(X,N,M)
         """
-        if len(self._close) < 2 \
-            or len(self._high) < 2 \
-            or len(self._low) < 2:
+        if len(self._close) < 2 or len(self._high) < 2 or len(self._low) < 2:
             self._tr.append(0.0)
             self._hd.append(0.0)
             self._ld.append(0.0)
@@ -395,6 +464,45 @@ class Option(Contract):
                                  _ADX_DEFAULT_N, 
                                  _ADX_DEFAULT_M)
         self._adx.append(round(cur_adx, 2))
+
+    def check_parting(self):
+        f_par = [0]*2
+        if len(self._close) <= 2:
+            return f_par
+
+        self._hh[-2], self._hh[-1], self._high[-1]
+        if self._hh[-2] > self._hh[-3] and self._hh[-2] > self._hh[-1] and \
+            self._ll[-2] > self._ll[-3] and self._ll[-2] > self._ll[-1]:
+            f_par[0] = 1
+        elif self._hh[-2] < self._hh[-3] and self._hh[-2] < self._hh[-1] and \
+            self._ll[-2] < self._ll[-3] and self._ll[-2] < self._ll[-1]:
+            f_par[1] = 1
+        return f_par
+
+    def check_dmi(self):
+        f_dmi = [0]*8
+        if len(self._close) < 2:
+            return f_dmi
+
+        if self._adx[-1] < -30.0:
+            f_dmi[0] = 1
+        elif self._adx[-1] < -16.0 and self._adx[-1] > -30.0:
+            f_dmi[1] = 1
+        elif self._adx[-1] < 0 and self._adx[-1] >= -16.0:
+            f_dmi[2] = 1
+        elif self._adx[-1] <=16 and self._adx[-1] > 0.0:
+            f_dmi[3] = 1
+        elif self._adx[-1] <= 30 and self._adx[-1] > 16.0:
+            f_dmi[4] = 1
+        elif self._adx[-1] > 30.0:
+            f_dmi[5] = 1
+
+        # extreme point check
+        if op_util.ref(self._adx, 1) > 60 and self._adx[-1] < 60.0:
+            f_dmi[6] = 1
+        elif op_util.ref(self._adx, 1) < -60.0 and self._adx[-1] > 60.0:
+            f_dmi[7] = 1
+        return f_dmi
 
     def check_macd_dev(self):
         """
@@ -487,7 +595,7 @@ class Option(Contract):
         self.update_ema()
         self.update_boll()
         self.update_guppyline()
-        #self.update_parting()
+        self.update_parting()
 
         self.update_diff()
         self.update_dea()
@@ -504,6 +612,8 @@ class Option(Contract):
             j_data = self.clct_all_var()
             if rtu.add(self._m_code, data.time, j_data):
                 print('write to redis successfully:', data.time)
+            else:
+                print('write to redis failed:', data.time)
         except ValueError as e:
             print(e)
 

@@ -176,7 +176,13 @@ class Consumer(_CancelableThread):
                 self.log.debug(u"finished")
         except Exception as error:
             self.log.warning(u"cannot continue to consume: %s", error)
+            self.log.warning(error.args)
             self.workEnv.fail(self)
+
+            exc_info = sys.exc_info()
+            self.log.debug(u"raising notified error: %s %s", exc_info[0], exc_info[1])
+            for filename, linenum, funcname, source in traceback.extract_tb(exc_info[2]):
+                _log.debug("%-23s:%s '%s' in %s", filename, linenum, source, funcname)
 
 
 class _BaseWorker(object):
