@@ -43,8 +43,8 @@ def delete(key, s, e):
     tseries.delete(key, start_timestamp=s, end_timestamp=e)
 
 if __name__ == '__main__':
-    print(tseries.count('IC2206'))
-    #print(get_slice('IC2206', s = parser.parse('202110180000').timestamp(), e = parser.parse('202110181422').timestamp()))
+    #print(tseries.count('IC2206'))
+    print(get_slice('IC2206', s = parser.parse('202110181420').timestamp(), e = parser.parse('202110181422').timestamp()))
     exit(0)
 
     client.flushdb()

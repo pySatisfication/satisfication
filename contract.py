@@ -199,36 +199,28 @@ class Option(Contract):
         assert self.t_data.close is not None and isinstance(self.t_data.close, float)
 
         self._open.append(self.t_data.open)
-        if len(self._open) > _RESERVE_DAYS:
-            self._open = self._open[-_RESERVE_DAYS:]
+        self._open = self._open[-_RESERVE_DAYS:]
 
         self._high.append(self.t_data.high)
-        if len(self._high) > _RESERVE_DAYS:
-            self._high = self._high[-_RESERVE_DAYS:]
+        self._high = self._high[-_RESERVE_DAYS:]
 
         self._low.append(self.t_data.low)
-        if len(self._low) > _RESERVE_DAYS:
-            self._low = self._low[-_RESERVE_DAYS:]
+        self._low = self._low[-_RESERVE_DAYS:]
 
         self._close.append(self.t_data.close)
-        if len(self._close) > _RESERVE_DAYS:
-            self._close = self._close[-_RESERVE_DAYS:]
+        self._close = self._close[-_RESERVE_DAYS:]
 
         self._volumes.append(self.t_data.volumes)
-        if len(self._volumes) > _RESERVE_DAYS:
-            self._volumes = self._volumes[-_RESERVE_DAYS:]
+        self._volumes = self._volumes[-_RESERVE_DAYS:]
 
         self._holds.append(self.t_data.holds)
-        if len(self._holds) > _RESERVE_DAYS:
-            self._holds = self._holds[-_RESERVE_DAYS:]
+        self._holds = self._holds[-_RESERVE_DAYS:]
 
         self._amounts.append(self.t_data.amounts)
-        if len(self._amounts) > _RESERVE_DAYS:
-            self._amounts = self._amounts[-_RESERVE_DAYS:]
+        self._amounts = self._amounts[-_RESERVE_DAYS:]
 
         self._avg_prices.append(self.t_data.avg_prices)
-        if len(self._avg_prices) > _RESERVE_DAYS:
-            self._avg_prices = self._avg_prices[-_RESERVE_DAYS:]
+        self._avg_prices = self._avg_prices[-_RESERVE_DAYS:]
 
     def update_ema(self):
         """
@@ -240,40 +232,28 @@ class Option(Contract):
         # ema in 12 days
         cur_val = op_util.ema_cc(self._ema12, self._close[-1], _EMA12_DEFAULT_N)
         self._ema12.append(round(cur_val, 2))
-
-        if len(self._ema12) > _RESERVE_DAYS:
-            self._ema12 = self._ema12[-_RESERVE_DAYS:]
+        self._ema12 = self._ema12[-_RESERVE_DAYS:]
 
         # 26 days
         cur_val = op_util.ema_cc(self._ema26, self._close[-1], _EMA26_DEFAULT_N)
         self._ema26.append(round(cur_val, 2))
-
-        if len(self._ema26) > _RESERVE_DAYS:
-            self._ema26 = self._ema26[-_RESERVE_DAYS:]
-
-    def update_diff(self):
-        assert len(self._ema12) > 0 and len(self._ema26) > 0
-        cur_diff = self._ema12[-1] - self._ema26[-1]
-        self._diff.append(cur_diff)
-
-        if len(self._diff) > _RESERVE_DAYS:
-            self._diff = self._diff[-_RESERVE_DAYS:]
-
-    def update_dea(self):
-        assert len(self._diff) > 0
-
-        cur_val = op_util.ema_cc(self._dea, self._diff[-1], _DEA_DEFAULT_N)
-        self._dea.append(round(cur_val, 2))
-
-        if len(self._dea) > _RESERVE_DAYS:
-            self._dea = self._dea[-_RESERVE_DAYS:]
+        self._ema26 = self._ema26[-_RESERVE_DAYS:]
 
     def update_macd(self):
-        assert len(self._diff) > 0 and len(self._dea) > 0
+        assert len(self._ema12) > 0 and len(self._ema26) > 0
+        # diff
+        self._diff.append(self._ema12[-1] - self._ema26[-1])
+        self._diff = self._diff[-_RESERVE_DAYS:]
+
+        # dea
+        cur_val = op_util.ema_cc(self._dea, self._diff[-1], _DEA_DEFAULT_N)
+        self._dea.append(round(cur_val, 2))
+        self._dea = self._dea[-_RESERVE_DAYS:]
+
+        # macd
         cur_val = 2*(self._diff[-1] - self._dea[-1])
         self._macd.append(cur_val)
-        if len(self._macd) > _RESERVE_DAYS:
-            self._macd = self._macd[-_RESERVE_DAYS:]
+        self._macd = self._macd[-_RESERVE_DAYS:]
 
     # boll
     def update_boll(self, N=20, M=2):
@@ -283,22 +263,22 @@ class Option(Contract):
         if len(self._close) < N:
             N = len(self._close)
 
-        # make sure cur price has been updated
+        # boll_st
         cur_boll_st = op_util.ma(self._close, N)
         self._boll_st.append(cur_boll_st)
-        if len(self._boll_st) > _RESERVE_DAYS:
-            self._boll_st = self._boll_st[-_RESERVE_DAYS:]
+        self._boll_st = self._boll_st[-_RESERVE_DAYS:]
 
+        # ub_st
         cur_ub_st = cur_boll_st + M * op_util.std(self._close, N)
         self._ub_st.append(cur_ub_st)
-        if len(self._ub_st) > _RESERVE_DAYS:
-            self._ub_st = self._ub_st[-_RESERVE_DAYS:]
+        self._ub_st = self._ub_st[-_RESERVE_DAYS:]
 
+        # lb_st
         cur_lb_st = cur_boll_st - M * op_util.std(self._close, N)
         self._lb_st.append(cur_lb_st)
-        if len(self._lb_st) > _RESERVE_DAYS:
-            self._lb_st = self._lb_st[-_RESERVE_DAYS:]
+        self._lb_st = self._lb_st[-_RESERVE_DAYS:]
 
+        # gravity_line
         cur_gl = round((self._high[-1] + self._low[-1] + self._open[-1] + 3 * self._close[-1]) / 6.0, 2)
         self._gravity_line.append(cur_gl)
 
@@ -340,20 +320,16 @@ class Option(Contract):
             N = len(self._boll_st_s1)
 
         self._boll_st_s2.append(op_util.ma(self._boll_st_s1, N))
-        if len(self._boll_st_s2) > _RESERVE_DAYS:
-            self._boll_st_s2 = self._boll_st_s2[-_RESERVE_DAYS:]
+        self._boll_st_s2 = self._boll_st_s2[-_RESERVE_DAYS:]
 
         self._boll_st_s3.append(op_util.ma(self._boll_st_s2, N))
-        if len(self._boll_st_s3) > _RESERVE_DAYS:
-            self._boll_st_s3 = self._boll_st_s3[-_RESERVE_DAYS:]
+        self._boll_st_s3 = self._boll_st_s3[-_RESERVE_DAYS:]
 
         self._boll_st_s4.append(op_util.ma(self._boll_st_s3, N))
-        if len(self._boll_st_s3) > _RESERVE_DAYS:
-            self._boll_st_s4 = self._boll_st_s4[-_RESERVE_DAYS:]
+        self._boll_st_s4 = self._boll_st_s4[-_RESERVE_DAYS:]
 
         self._boll_st_s5.append(op_util.ma(self._boll_st_s4, N))
-        if len(self._boll_st_s5) > _RESERVE_DAYS:
-            self._boll_st_s5 = self._boll_st_s5[-_RESERVE_DAYS:]
+        self._boll_st_s5 = self._boll_st_s5[-_RESERVE_DAYS:]
 
     def update_parting(self):
         if len(self._close) <= 2:
@@ -386,10 +362,12 @@ class Option(Contract):
                        (h_2 >= self._hh[-n] and l_2 > self._ll[-n]):
                         t_hh3 = max(h_2, h_3)
                         t_ll3 = max(l_2, l_3)
+                        break
                     elif (h_2 < self._hh[-n] and l_2 <= self._ll[-n]) or \
                          (h_2 <= self._hh[-n] and l_2 < self._ll[-n]):
                         t_hh3 = min(h_2, h_3)
                         t_ll3 = min(l_2, l_3)
+                        break
                     n += 1
                 self._hh.append(t_hh3)
                 self._ll.append(t_ll3)
@@ -420,9 +398,7 @@ class Option(Contract):
         else:
             cur_val = op_util.sma_cc(self._tr, cur_tr, _TR_DEFAULT_N, _TR_DEFAULT_M)
             self._tr.append(round(cur_val, 2))
-
-        if len(self._tr) > _RESERVE_DAYS:
-            self._tr = self._tr[-_RESERVE_DAYS:]
+        self._tr = self._tr[-_RESERVE_DAYS:]
 
         # hd&ld
         self._hd.append(self._high[-1] - op_util.ref(self._high, 1))
@@ -596,9 +572,6 @@ class Option(Contract):
         self.update_boll()
         self.update_guppyline()
         self.update_parting()
-
-        self.update_diff()
-        self.update_dea()
         self.update_macd()
         self.update_dmi()
 
