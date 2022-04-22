@@ -1,8 +1,10 @@
 import sys
 import time
+import json
 import threading
 import logging
 import contract as ct
+import utils.redis_ts_util as rtu
 
 class ContractFactory(object):
     def __init__(self):
@@ -46,28 +48,51 @@ class SimpleStrategy(BaseStrategy):
         else:
             item = ContractFactory.c_creator(c_code)
             self._ct_data[c_code] = item
-        item.iterate(data)
-        #time.sleep(_CONSUMPTION_DELAY)
+
+        # step 1. update transaction data and base indicators
+        j_idx_str = item.iterate(data)
+        try:
+            # save in time-series for current step
+            if rtu.add(c_code, data.time, j_idx_str):
+                print('write intermediate results to redis successfully:', data.time)
+            else:
+                print('write intermediate results to redis failed:', data.time)
+        except ValueError as e:
+            print(e)
         
+        # step 2. update strategy results
         # macd
-        self.stg_macd_check(item)
+        f_dev = item.check_macd_dev()
         # boll
-        self.stg_boll_check(item)
+        f_boll = item.check_boll()
         # dmi
-        self.stg_dmi_check(item)
+        f_dmi = item.check_dmi()
         # parting
-        self.stg_parting_check(item)
+        f_par = item.check_parting()
+
+        j_stg_str = json.dumps({'f_dev': ','.join(f_dev),
+            'f_boll': ','.join(f_boll),
+            'f_dmi': ','.join(f_dmi),
+            'f_par': ','.join(f_par)})
+        try:
+            # save in time-series for current step
+            if rtu.add(c_code + ':stg', data.time, j_stg_str):
+                print('write stg results to redis successfully:', data.time)
+            else:
+                print('write stg results to redis failed:', data.time)
+        except ValueError as e:
+            print(e)
 
         self._ct_lock.release()
 
     def stg_boll_check(self, obj):
-        obj.check_boll()
+        return obj.check_boll()
 
     def stg_dmi_check(self, obj):
-        obj.check_dmi()
+        return obj.check_dmi()
     
     def stg_parting_check(self, obj):
-        obj.check_parting()
+        return obj.check_parting()
 
     def stg_macd_check(self, obj):
         """

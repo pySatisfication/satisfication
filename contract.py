@@ -38,8 +38,8 @@ class Intersection(object):
         return 'type:{},start:{},end:{},close_idx:{}'.format(self._type, self._start_time, self._end_time, self._close_idx)
 
 class Contract(object):
-    def __init__(self, m_code):
-        self._m_code = m_code
+    def __init__(self, c_code):
+        self._c_code = c_code
 
         # prices and transaction 
         self._open = []
@@ -171,9 +171,9 @@ class Contract(object):
         return json.dumps(m_var)
 
 class Option(Contract):
-    def __init__(self, m_code):
-        assert m_code is not None
-        super(Option, self).__init__(m_code=m_code)
+    def __init__(self, code):
+        assert code is not None
+        super(Option, self).__init__(c_code=code)
         self._type = 'option'
         self._cur_t_data = None
 
@@ -189,10 +189,10 @@ class Option(Contract):
             raise ValueError('value error')
 
     @property
-    def m_code(self):
-        return self.m_code
+    def c_code(self):
+        return self._c_code
 
-    def update_trans(self):
+    def update_ct_data(self):
         assert self.t_data.open is not None and isinstance(self.t_data.open, float)
         assert self.t_data.high is not None and isinstance(self.t_data.high, float)
         assert self.t_data.low is not None and isinstance(self.t_data.low, float)
@@ -306,11 +306,11 @@ class Option(Contract):
         self._of_f_lb_st.append(1 if cur_gl < self._ub_st[-1] else 0)
 
     def check_boll(self):
-        f_boll = [0]*4
-        f_boll[0] = self._trend_to_rise[-1]
-        f_boll[1] = self._trend_to_fall[-1]
-        f_boll[2] = self._of_f_ub_st[-1]
-        f_boll[3] = self._of_f_lb_st[-1]
+        f_boll = ['0']*4
+        f_boll[0] = str(self._trend_to_rise[-1])
+        f_boll[1] = str(self._trend_to_fall[-1])
+        f_boll[2] = str(self._of_f_ub_st[-1])
+        f_boll[3] = str(self._of_f_lb_st[-1])
         return f_boll
 
     def update_guppyline(self, N = 2):
@@ -442,42 +442,42 @@ class Option(Contract):
         self._adx.append(round(cur_adx, 2))
 
     def check_parting(self):
-        f_par = [0]*2
+        f_par = ['0']*2
         if len(self._close) <= 2:
             return f_par
 
         self._hh[-2], self._hh[-1], self._high[-1]
         if self._hh[-2] > self._hh[-3] and self._hh[-2] > self._hh[-1] and \
             self._ll[-2] > self._ll[-3] and self._ll[-2] > self._ll[-1]:
-            f_par[0] = 1
+            f_par[0] = '1'
         elif self._hh[-2] < self._hh[-3] and self._hh[-2] < self._hh[-1] and \
             self._ll[-2] < self._ll[-3] and self._ll[-2] < self._ll[-1]:
-            f_par[1] = 1
+            f_par[1] = '1'
         return f_par
 
     def check_dmi(self):
-        f_dmi = [0]*8
+        f_dmi = ['0']*8
         if len(self._close) < 2:
             return f_dmi
 
         if self._adx[-1] < -30.0:
-            f_dmi[0] = 1
+            f_dmi[0] = '1'
         elif self._adx[-1] < -16.0 and self._adx[-1] > -30.0:
-            f_dmi[1] = 1
+            f_dmi[1] = '1'
         elif self._adx[-1] < 0 and self._adx[-1] >= -16.0:
-            f_dmi[2] = 1
+            f_dmi[2] = '1'
         elif self._adx[-1] <=16 and self._adx[-1] > 0.0:
-            f_dmi[3] = 1
+            f_dmi[3] = '1'
         elif self._adx[-1] <= 30 and self._adx[-1] > 16.0:
-            f_dmi[4] = 1
+            f_dmi[4] = '1'
         elif self._adx[-1] > 30.0:
-            f_dmi[5] = 1
+            f_dmi[5] = '1'
 
         # extreme point check
         if op_util.ref(self._adx, 1) > 60 and self._adx[-1] < 60.0:
-            f_dmi[6] = 1
+            f_dmi[6] = '1'
         elif op_util.ref(self._adx, 1) < -60.0 and self._adx[-1] > 60.0:
-            f_dmi[7] = 1
+            f_dmi[7] = '1'
         return f_dmi
 
     def check_macd_dev(self):
@@ -487,7 +487,7 @@ class Option(Contract):
             index 0~3       # bottom divergence
             index 4~7       # top divergence
         """
-        f_dev = [0]*8
+        f_dev = ['0']*8
         if len(self._diff) == 1:
             return f_dev
 
@@ -506,22 +506,22 @@ class Option(Contract):
             c_max1 = max(self._close[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
             c_max2 = max(self._close[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
             if c_max1 <= c_max2:
-                f_dev[0] = 1
+                f_dev[0] = '1'
 
             diff_max1 = max(self._diff[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
             diff_max2 = max(self._diff[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
             if diff_max1 > diff_max2:
-                f_dev[1] = 1
+                f_dev[1] = '1'
 
             macd_max1 = max(self._macd[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
             macd_max2 = max(self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
             if macd_max1 > macd_max2:
-                f_dev[2] = 1
+                f_dev[2] = '1'
 
             macd_area1 = sum([abs(m) for m in self._macd[self._inters[-2].close_idx:(self._inters[-1].close_idx)]])
             macd_area2 = sum([abs(m) for m in self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)]])
             if macd_area1 > macd_area2:
-                f_dev[3] = 1
+                f_dev[3] = '1'
         elif self._diff[-2] > self._dea[-2] and self._diff[-1] < self._dea[-1]:   # sicha
             # 1. record
             self._inters.append(Intersection('D', self._time[-1], self.t_data.time, len(self._close) - 1))
@@ -537,22 +537,22 @@ class Option(Contract):
             c_max1 = max(self._close[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
             c_max2 = max(self._close[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
             if c_max1 >= c_max2:
-                f_dev[4] = 1
+                f_dev[4] = '1'
 
             diff_max1 = max(self._diff[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
             diff_max2 = max(self._diff[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
             if diff_max1 < diff_max2:
-                f_dev[5] = 1
+                f_dev[5] = '1'
 
             macd_max1 = max(self._macd[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
             macd_max2 = max(self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
             if macd_max1 < macd_max2:
-                f_dev[6] = 1
+                f_dev[6] = '1'
 
             macd_area1 = sum([abs(m) for m in self._macd[self._inters[-2].close_idx:(self._inters[-1].close_idx)]])
             macd_area2 = sum([abs(m) for m in self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)]])
             if macd_area1 < macd_area2:
-                f_dev[7] = 1
+                f_dev[7] = '1'
         return f_dev
 
     def iterate(self, data):
@@ -567,7 +567,8 @@ class Option(Contract):
         """
         step 1. update indicator
         """
-        self.update_trans()
+        self.update_ct_data()
+
         self.update_ema()
         self.update_boll()
         self.update_guppyline()
@@ -580,15 +581,7 @@ class Option(Contract):
             print('final close:', self._close)
             print('final ema12:', self._ema12)
 
-        # step 2. save data in time-series for current step
-        try:
-            j_data = self.clct_all_var()
-            if rtu.add(self._m_code, data.time, j_data):
-                print('write to redis successfully:', data.time)
-            else:
-                print('write to redis failed:', data.time)
-        except ValueError as e:
-            print(e)
+        return self.clct_all_var()
 
 if __name__ == '__main__':
     cc = Option('code_3')
