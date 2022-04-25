@@ -62,7 +62,7 @@ class SimpleStrategy(BaseStrategy):
         
         # step 2. update strategy results
         # macd
-        f_dev = item.check_macd_dev()
+        f_macd_dev, f_sep_dev = item.check_macd_dev()
         # boll
         f_boll = item.check_boll()
         # dmi
@@ -70,7 +70,8 @@ class SimpleStrategy(BaseStrategy):
         # parting
         f_par = item.check_parting()
 
-        j_stg_str = json.dumps({'f_dev': ','.join(f_dev),
+        j_stg_str = json.dumps({'f_macd_dev': ','.join(f_macd_dev),
+            'f_sep_dev': ','.join(f_sep_dev),
             'f_boll': ','.join(f_boll),
             'f_dmi': ','.join(f_dmi),
             'f_par': ','.join(f_par)})
@@ -99,7 +100,7 @@ class SimpleStrategy(BaseStrategy):
         step strategy
         """
         # check devergence
-        f_dev = obj.check_macd_dev()
+        f_dev, f_inter_dev = obj.check_macd_dev()
         if f_dev[0]:
             # TODO GUI
             print('MACD bottom divergence', [item.print() for item in obj.inters[-4:]])

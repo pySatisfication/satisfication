@@ -1,8 +1,12 @@
+import os
 import json
+import sys
+import numpy as np
 from easydict import EasyDict as edict
 
 import utils.util as op_util
 import utils.redis_ts_util as rtu
+import utils.file_util as fu
 
 _RESERVE_DAYS = 300
 _EMA12_DEFAULT_N = 12
@@ -40,6 +44,9 @@ class Intersection(object):
 class Contract(object):
     def __init__(self, c_code):
         self._c_code = c_code
+
+        # last_time
+        self._time = []
 
         # prices and transaction 
         self._open = []
@@ -99,8 +106,12 @@ class Contract(object):
         self._hh = []
         self._ll = []
 
-        # last_time
-        self._time = []
+        self._stg_f_boll = []
+        self._stg_f_par = []
+        self._stg_f_dmi = []
+        self._stg_macd_dev = []
+        self._stg_sep_dev = []
+        self._stg_f_guppy = []
 
     @property
     def inters(self):
@@ -160,14 +171,31 @@ class Contract(object):
                 if len(v1) != len(v2):
                     raise ValueError('inconsistent data length')
 
-    def clct_all_var(self):
+    def clct_all_var(self, exclude_stg=True):
         m_var = {}
         for k, v in self.__dict__.items():
             if not isinstance(v, list) or len(v) == 0:
                 continue
             if k in ['_inters', '_cur_t_data']:
                 continue
+            if exclude_stg and k.startswith('_stg'):
+                continue
             m_var[k] = v[-1]
+        return json.dumps(m_var)
+
+    def clct_for_validate(self):
+        m_var = {}
+        for k, v in self.__dict__.items():
+            if not isinstance(v, list) or len(v) == 0:
+                continue
+            if k in ['_inters', '_cur_t_data', 
+                     '_tr', '_hd', '_ld', '_dmp', '_dmm', '_pdi', '_mdi', '_adx', 
+                     '_ema12', '_ema26']:
+                continue
+            if k == '_stg_f_dmi':
+                m_var[k] = v[-1][-2:]
+            else:
+                m_var[k] = v[-1]
         return json.dumps(m_var)
 
 class Option(Contract):
@@ -311,6 +339,7 @@ class Option(Contract):
         f_boll[1] = str(self._trend_to_fall[-1])
         f_boll[2] = str(self._of_f_ub_st[-1])
         f_boll[3] = str(self._of_f_lb_st[-1])
+        self._stg_f_boll.append(''.join(f_boll))
         return f_boll
 
     def update_guppyline(self, N = 2):
@@ -442,22 +471,52 @@ class Option(Contract):
         self._adx.append(round(cur_adx, 2))
 
     def check_parting(self):
-        f_par = ['0']*2
+        f_par = ['0']*3
         if len(self._close) <= 2:
+            self._stg_f_par.append(''.join(f_par))
             return f_par
 
-        self._hh[-2], self._hh[-1], self._high[-1]
-        if self._hh[-2] > self._hh[-3] and self._hh[-2] > self._hh[-1] and \
-            self._ll[-2] > self._ll[-3] and self._ll[-2] > self._ll[-1]:
+        h_1, h_2, h_3 = self._hh[-3], self._hh[-2], self._hh[-1]
+        l_1, l_2, l_3 = self._ll[-3], self._ll[-2], self._ll[-1]
+        if h_2 > h_1 and h_2 > h_3 and l_2 > l_1 and l_2 > l_3:
             f_par[0] = '1'
-        elif self._hh[-2] < self._hh[-3] and self._hh[-2] < self._hh[-1] and \
-            self._ll[-2] < self._ll[-3] and self._ll[-2] < self._ll[-1]:
             f_par[1] = '1'
+        elif h_2 < h_1 and h_2 < h_3 and l_2 < l_1 and l_2 < l_3:
+            f_par[0] = '1'
+            f_par[2] = '1'
+        else:
+            f_par[0] = '0'
+
+        self._stg_f_par.append(''.join(f_par))
         return f_par
+
+    def check_guppy(self):
+        f_guppy = ['0'] * 3
+        if self._boll_st_s1[-1] < self._boll_st_s5[-1]:
+            f_guppy[0] = '1'
+        elif self._boll_st_s1[-1] > self._boll_st_s5[-1]:
+            f_guppy[0] = '2'
+        else:
+            f_guppy[0] = '0'
+
+        if len(self._boll_st_s1) < 2:
+            self._stg_f_guppy.append(''.join(f_guppy))
+            return f_guppy
+
+        s1_2, s5_2 = self._boll_st_s1[-2], self._boll_st_s5[-2]
+        s1_1, s5_1 = self._boll_st_s1[-1], self._boll_st_s5[-1]
+        if s1_2 > s5_2 and s1_1 < s5_1:
+            f_guppy[1] = '1';
+        elif s1_2 < s5_2 and s1_1 > s5_1:
+            f_guppy[2] = '1';
+
+        self._stg_f_guppy.append(''.join(f_guppy))
+        return f_guppy
 
     def check_dmi(self):
         f_dmi = ['0']*8
         if len(self._close) < 2:
+            self._stg_f_dmi.append(''.join(f_dmi))
             return f_dmi
 
         if self._adx[-1] < -30.0:
@@ -478,8 +537,130 @@ class Option(Contract):
             f_dmi[6] = '1'
         elif op_util.ref(self._adx, 1) < -60.0 and self._adx[-1] > 60.0:
             f_dmi[7] = '1'
+
+        self._stg_f_dmi.append(''.join(f_dmi))
         return f_dmi
 
+    def make_judge_jincha(self, i_a, i_b, i_c, i_d):
+        f_dev = ['0']*4
+        # [s, e)
+        c_max1 = max(self._close[i_a.close_idx:i_b.close_idx])
+        c_max2 = max(self._close[i_c.close_idx:i_d.close_idx])
+        if c_max1 <= c_max2:
+            f_dev[0] = '1'
+
+        diff_max1 = max(self._diff[i_a.close_idx:i_b.close_idx])
+        diff_max2 = max(self._diff[i_c.close_idx:i_d.close_idx])
+        if diff_max1 > diff_max2:
+            f_dev[1] = '1'
+
+        macd_max1 = max(self._macd[i_a.close_idx:i_b.close_idx])
+        macd_max2 = max(self._macd[i_c.close_idx:i_d.close_idx])
+        if macd_max1 > macd_max2:
+            f_dev[2] = '1'
+
+        macd_area1 = sum([abs(m) for m in self._macd[i_a.close_idx:i_b.close_idx]])
+        macd_area2 = sum([abs(m) for m in self._macd[i_c.close_idx:i_d.close_idx]])
+        if macd_area1 > macd_area2:
+            f_dev[3] = '1'
+        return f_dev
+
+    def make_judge_sicha(self, i_a, i_b, i_c, i_d):
+        f_dev = ['0']*4
+        # [s, e)
+        c_max1 = max(self._close[i_a.close_idx:i_b.close_idx])
+        c_max2 = max(self._close[i_c.close_idx:i_d.close_idx])
+        if c_max1 >= c_max2:
+            f_dev[0] = '1'
+
+        diff_max1 = max(self._diff[i_a.close_idx:i_b.close_idx])
+        diff_max2 = max(self._diff[i_c.close_idx:i_d.close_idx])
+        if diff_max1 < diff_max2:
+            f_dev[1] = '1'
+
+        macd_max1 = max(self._macd[i_a.close_idx:i_b.close_idx])
+        macd_max2 = max(self._macd[i_c.close_idx:i_d.close_idx])
+        if macd_max1 < macd_max2:
+            f_dev[2] = '1'
+
+        macd_area1 = sum([abs(m) for m in self._macd[i_a.close_idx:i_b.close_idx]])
+        macd_area2 = sum([abs(m) for m in self._macd[i_c.close_idx:i_d.close_idx]])
+        if macd_area1 < macd_area2:
+            f_dev[3] = '1'
+        return f_dev
+
+    def check_macd_dev(self):
+        """
+        return:
+            an array with length of 8,
+            index 0~3       # bottom divergence
+            index 4~7       # top divergence
+        """
+        f_macd_dev = ['0']*8
+        f_sep_dev = ['0']*8
+        if len(self._diff) == 1:
+            self._stg_macd_dev.append(''.join(f_macd_dev))
+            self._stg_sep_dev.append(''.join(f_sep_dev))
+            return f_macd_dev, f_sep_dev
+
+        if self._diff[-2] < self._dea[-2] and self._diff[-1] > self._dea[-1]:     # jincha
+            # 1. record
+            self._inters.append(Intersection('K', self._time[-1], self.t_data.time, len(self._close) - 1))
+            if len(self._inters) < 4:
+                self._stg_macd_dev.append(''.join(f_macd_dev))
+                self._stg_sep_dev.append(''.join(f_sep_dev))
+                return f_macd_dev, f_sep_dev
+
+            # 2. 普通底背离
+            assert self._inters[-2].t_inter == 'D' \
+                and self._inters[-3].t_inter == 'K' \
+                and self._inters[-4].t_inter == 'D'
+
+            f_macd_dev[0:4] = self.make_judge_jincha(self._inters[-2], self._inters[-1], 
+                                                self._inters[-4], self._inters[-3])
+
+            if len(self._inters) < 6:
+                self._stg_macd_dev.append(''.join(f_macd_dev))
+                self._stg_sep_dev.append(''.join(f_sep_dev))
+                return f_macd_dev, f_sep_dev
+
+            # 3. 隔山底背离
+            assert self._inters[-5].t_inter == 'K' and self._inters[-6].t_inter == 'D'
+
+            f_sep_dev[0:4] = self.make_judge_jincha(self._inters[-2], self._inters[-1], 
+                                               self._inters[-6], self._inters[-5])
+        elif self._diff[-2] > self._dea[-2] and self._diff[-1] < self._dea[-1]:   # sicha
+            # 1. record
+            self._inters.append(Intersection('D', self._time[-1], self.t_data.time, len(self._close) - 1))
+            if len(self._inters) < 4:
+                self._stg_macd_dev.append(''.join(f_macd_dev))
+                self._stg_sep_dev.append(''.join(f_sep_dev))
+                return f_macd_dev, f_sep_dev
+
+            # 2. 普通顶背离
+            assert self._inters[-2].t_inter == 'K' \
+                and self._inters[-3].t_inter == 'D' \
+                and self._inters[-4].t_inter == 'K'
+
+            f_macd_dev[4:8] = self.make_judge_sicha(self._inters[-2], self._inters[-1], 
+                                               self._inters[-4], self._inters[-3])
+
+            if len(self._inters) < 6:
+                self._stg_macd_dev.append(''.join(f_macd_dev))
+                self._stg_sep_dev.append(''.join(f_sep_dev))
+                return f_macd_dev, f_sep_dev
+
+            # 3. 隔山顶背离
+            assert self._inters[-5].t_inter == 'D' and self._inters[-6].t_inter == 'K'
+
+            f_sep_dev[4:8] = self.make_judge_sicha(self._inters[-2], self._inters[-1], 
+                                              self._inters[-6], self._inters[-5])
+
+        self._stg_macd_dev.append(''.join(f_macd_dev))
+        self._stg_sep_dev.append(''.join(f_sep_dev))
+        return f_macd_dev, f_sep_dev
+
+    '''
     def check_macd_dev(self):
         """
         return:
@@ -489,6 +670,7 @@ class Option(Contract):
         """
         f_dev = ['0']*8
         if len(self._diff) == 1:
+            self._stg_f_dev.append(''.join(f_dev))
             return f_dev
 
         if self._diff[-2] < self._dea[-2] and self._diff[-1] > self._dea[-1]:     # jincha
@@ -553,7 +735,9 @@ class Option(Contract):
             macd_area2 = sum([abs(m) for m in self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)]])
             if macd_area1 < macd_area2:
                 f_dev[7] = '1'
+        self._stg_f_dev.append(''.join(f_dev))
         return f_dev
+    '''
 
     def iterate(self, data):
         assert isinstance(data, dict)
@@ -562,7 +746,7 @@ class Option(Contract):
         if len(self._time) > 0:
             assert data.time > self._time[-1], \
                 'time of data must be greater than lastest updated time:{}'.format(
-                self._lastest_update_time)
+                self._time[-1])
         self._time.append(data.time)
         """
         step 1. update indicator
@@ -584,40 +768,94 @@ class Option(Contract):
         return self.clct_all_var()
 
 if __name__ == '__main__':
-    cc = Option('code_3')
-    t_data = ['3,IC2206,202110180929,6679.0,6679.0,6679.0,6679.0,3,3,20037.0,6679.0',
-              '3,IC2206,202110180930,6666.6,6688.8,6666.0,6675.0,32,34,213660.00000000003,6676.875000000001',
-              '3,IC2206,202110180931,6673.8,6675.4,6660.0,6660.0,33,67,220091.59999999998,6669.442424242424',
-              '3,IC2206,202110180932,6661.8,6661.8,6650.0,6651.8,20,87,133101.4,6655.07',
-              '3,IC2206,202110180933,6650.0,6655.2,6647.0,6647.2,28,115,186226.6,6650.95',
-              '3,IC2206,202110180934,6647.6,6654.6,6647.6,6654.0,11,126,73167.0,6651.545454545455',
-              '3,IC2206,202110180935,6649.6,6665.8,6649.4,6659.6,18,144,119841.20000000001,6657.844444444445',
-              '3,IC2206,202110180936,6662.2,6664.6,6648.8,6652.6,28,172,186382.20000000004,6656.507142857145',
-              '3,IC2206,202110180937,6654.4,6660.4,6650.4,6659.2,30,202,199699.00000000003,6656.633333333334',
-              '3,IC2206,202110180938,6666.0,6666.0,6645.0,6645.0,27,229,179653.2,6653.822222222223',
-              '3,IC2206,202110180939,6647.0,6652.4,6640.0,6640.0,21,250,139579.0,6646.619047619048',
-              '3,IC2206,202110180940,6640.0,6655.4,6639.8,6650.4,40,290,265889.99999999994,6647.249999999998',
-              '3,IC2206,202110180941,6655.2,6655.2,6643.4,6649.8,35,325,232663.79999999996,6647.537142857142',
-              '3,IC2206,202110180942,6645.2,6648.8,6641.0,6642.8,49,374,325595.3999999999,6644.804081632651',
-              '3,IC2206,202110180943,6639.8,6645.6,6639.2,6645.6,29,402,192609.2,6641.696551724139']
 
-    for line in t_data:
-        items = line.split(',')
-        d_data = edict(m_code = int(items[0]), 
-                       c_code = items[1],
-                       time = items[2],
-                       open = float(items[3]),
-                       high = float(items[4]),
-                       low = float(items[5]),
-                       close = float(items[6]),
-                       volumes = float(items[7]),
-                       holds = float(items[8]),
-                       amounts = float(items[9]),
-                       avg_prices = float(items[10])
-                    )
-        cc.iterate(d_data)
-        res = cc.clct_all_var()
-        j_res = json.loads(res)
-        for k, v in j_res.items():
-            print(k + '\t' + str(v))
+    # read input file
+    if len(sys.argv[1]) < 2:
+        print('Usage: python {} path'.format(sys.argv[0]))
+        exit(0)
+
+    out_path = 'data/validate'
+    if not os.path.exists(out_path):
+        os.mkdir(out_path)
+
+    files = fu.get_files(sys.argv[1], '_6_10')
+    for file_path in files:
+        cc = Option('null')
+        t_data = []
+        with open(file_path, 'r') as f:
+            for line in f.readlines():
+                line = line.strip()
+                t_data.append(line)
+
+        res = []
+        row_head = []
+        line_idx = 0
+        for line in t_data:
+            items = line.split(',')
+            d_data = edict(m_code = int(items[0]), 
+                           c_code = items[1],
+                           time = items[2],
+                           open = float(items[3]),
+                           high = float(items[4]),
+                           low = float(items[5]),
+                           close = float(items[6]), volumes = float(items[7]),
+                           holds = float(items[8]),
+                           amounts = float(items[9]),
+                           avg_prices = float(items[10])
+                        )
+            cc.iterate(d_data)
+            cc.check_boll()
+            cc.check_parting()
+            cc.check_dmi()
+            cc.check_macd_dev()
+            cc.check_guppy()
+
+            # base index
+            res_str = cc.clct_for_validate()
+            j_res = json.loads(res_str)
+            val = []
+            for k, v in j_res.items():
+                #print(k + '\t' + str(v))
+                if line_idx == 0:
+                    if k == '_volumes':
+                        row_head.append('_volumes(成交量)')
+                    elif k == '_holds':
+                        row_head.append('_holds(持仓量)')
+                    elif k == '_amounts':
+                        row_head.append('_amounts(成交金额)')
+                    elif k == '_avg_prices':
+                        row_head.append('_avg_prices(平均成交价格)')
+                    elif k == '_trend_to_rise':
+                        row_head.append('_trend_to_rise(上涨趋势)')
+                    elif k == '_trend_to_fall':
+                        row_head.append('_trend_to_fall(下跌趋势)')
+                    elif k == '_gravity_line':
+                        row_head.append('_gravity_line(重心线)')
+                    elif k == '_of_f_ub_st':
+                        row_head.append('_of_f_ub_st(溢出上轨)')
+                    elif k == '_of_f_lb_st':
+                        row_head.append('_of_f_lb_st(溢出下轨)')
+                    elif k == '_stg_f_par':
+                        row_head.append('_stg_f_par(分型)')
+                    elif k == '_stg_macd_dev':
+                        row_head.append('_stg_macd_dev(普通背离)')
+                    elif k == '_stg_sep_dev':
+                        row_head.append('_stg_sep_dev(隔山背离)')
+                    elif k == '_stg_f_guppy':
+                        row_head.append('_stg_f_guppy(顾比策略)')
+                    elif k == '_stg_f_dmi':
+                        row_head.append('_stg_f_adx(ADX极值)')
+                    else:
+                        row_head.append(k)
+                val.append(v)
+            if line_idx == 0:
+                res.append(row_head)
+            res.append(val)
+            line_idx += 1
+
+        res_arr = np.array(res)
+
+        file_name = file_path.split('/')[-1]
+        print(file_path, file_name)
+        fu.save_xlsx(os.path.join(out_path, file_name + '.xlsx'), res_arr.T.tolist())
 
