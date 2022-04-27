@@ -23,9 +23,9 @@ _ADX_DEFAULT_N = 14
 _ADX_DEFAULT_M = 1
 _GUPPY_DEFAULT_N = 2
 
-class Intersection(object):
-    def __init__(self, t_inter, start, end, close_idx):
-        self._type = t_inter
+class EventPoint(object):
+    def __init__(self, event, start, end, close_idx):
+        self._event = event
         self._start_time = start
         self._end_time = end
         self._close_idx = close_idx
@@ -35,11 +35,16 @@ class Intersection(object):
         return self._close_idx
 
     @property
-    def t_inter(self):
-        return self._type
+    def end_time(self):
+        return self._end_time
+
+    @property
+    def event_name(self):
+        return self._event
 
     def print(self):
-        return 'type:{},start:{},end:{},close_idx:{}'.format(self._type, self._start_time, self._end_time, self._close_idx)
+        return 'type:{},start:{},end:{},close_idx:{}'.format(
+            self._type, self._start_time, self._end_time, self._close_idx)
 
 class Contract(object):
     def __init__(self, c_code):
@@ -68,13 +73,14 @@ class Contract(object):
         # std
         #self._std = []
 
-        # macd
+        # dev
         self._diff = []
         self._dea = []
         self._macd = []
 
-        self._inters = []
-        self._t_cross = []
+        self._inters = []   # 金叉死叉点
+        self._t_cross = []  # DIFF&DEA是否交叉
+        self._pars = []     # 分型点
 
         # boll 
         self._boll_st = []
@@ -112,6 +118,8 @@ class Contract(object):
         self._stg_f_dmi = []
         self._stg_macd_dev = []
         self._stg_sep_dev = []
+        self._stg_in_dev = []
+        self._stg_in_sep_dev = []
         self._stg_f_guppy = []
 
     @property
@@ -172,24 +180,26 @@ class Contract(object):
                 if len(v1) != len(v2):
                     raise ValueError('inconsistent data length')
 
+    # 存储Redis
     def clct_all_var(self, exclude_stg=True):
         m_var = {}
         for k, v in self.__dict__.items():
             if not isinstance(v, list) or len(v) == 0:
                 continue
-            if k in ['_inters', '_cur_t_data']:
+            if k in ['_inters', '_cur_t_data', '_pars']:
                 continue
             if exclude_stg and k.startswith('_stg'):
                 continue
             m_var[k] = v[-1]
         return json.dumps(m_var)
 
+    # 验证
     def clct_for_validate(self):
         m_var = {}
         for k, v in self.__dict__.items():
             if not isinstance(v, list) or len(v) == 0:
                 continue
-            if k in ['_inters', '_cur_t_data', 
+            if k in ['_inters', '_cur_t_data', '_pars', 
                      '_tr', '_hd', '_ld', '_dmp', '_dmm', '_pdi', '_mdi', '_adx', 
                      '_hh', '_ll', 
                      '_ema12', '_ema26']:
@@ -199,6 +209,16 @@ class Contract(object):
             else:
                 m_var[k] = v[-1]
         return json.dumps(m_var)
+
+    def get_last_par_points(self, inter_time, event_name=None):
+        '''
+        traverse to get lastest parting points
+        '''
+        last_pars = []
+        for idx in range(0, len(self._pars)):
+            if self._pars[-idx].end_time > inter_time and self._pars[-idx].event_name == event_name:
+                last_pars.insert(0, self._pars[-idx])
+        return last_pars
 
 class Option(Contract):
     def __init__(self, code):
@@ -469,27 +489,27 @@ class Option(Contract):
         f_boll[1] = str(self._of_f_ub_st[-1])
         f_boll[2] = str(self._trend_to_fall[-1])
         f_boll[3] = str(self._of_f_lb_st[-1])
-        self._stg_f_boll.append(''.join(f_boll))
         return f_boll
 
     def check_parting(self):
-        f_par = ['0']*3
+        '''
+        前一时刻出现的顶/底值，记录在当前时刻，因为只有到当前
+        '''
+        f_par = ['0']
         if len(self._close) <= 2:
-            self._stg_f_par.append(''.join(f_par))
             return f_par
 
         h_1, h_2, h_3 = self._hh[-3], self._hh[-2], self._hh[-1]
         l_1, l_2, l_3 = self._ll[-3], self._ll[-2], self._ll[-1]
         if h_2 > h_1 and h_2 > h_3 and l_2 > l_1 and l_2 > l_3:
+            # 顶分型
+            self._pars.append(EventPoint('TP', self._time[-2], self._time[-1], len(self._close) - 1))
             f_par[0] = '1'
-            f_par[1] = '1'
         elif h_2 < h_1 and h_2 < h_3 and l_2 < l_1 and l_2 < l_3:
-            f_par[0] = '1'
-            f_par[2] = '1'
-        else:
-            f_par[0] = '0'
+            # 底分型
+            self._pars.append(EventPoint('BP', self._time[-2], self._time[-1], len(self._close) - 1))
+            f_par[0] = '-1'
 
-        self._stg_f_par.append(''.join(f_par))
         return f_par
 
     def check_guppy(self):
@@ -500,7 +520,6 @@ class Option(Contract):
             f_guppy[0] = '1'
 
         if len(self._boll_st_s1) < 2:
-            self._stg_f_guppy.append(''.join(f_guppy))
             return f_guppy
 
         s1_2, s5_2 = self._boll_st_s1[-2], self._boll_st_s5[-2]
@@ -510,13 +529,11 @@ class Option(Contract):
         elif s1_2 < s5_2 and s1_1 > s5_1:
             f_guppy[1] = '1';
 
-        self._stg_f_guppy.append(''.join(f_guppy))
         return f_guppy
 
     def check_dmi(self):
         f_dmi = ['0']*7
         if len(self._close) < 2:
-            self._stg_f_dmi.append(''.join(f_dmi))
             return f_dmi
 
         if self._adx[-1] < -30.0:
@@ -540,7 +557,6 @@ class Option(Contract):
         else:
             f_dmi[6] = '0'
 
-        self._stg_f_dmi.append(''.join(f_dmi))
         return f_dmi
 
     def make_judge_jincha(self, i_a, i_b, i_c, i_d):
@@ -591,152 +607,160 @@ class Option(Contract):
             f_dev[3] = '1'
         return f_dev
 
-    def check_macd_dev(self):
+    def in_bottom_dev(self, l1_from, l1_to, l2_from, l2_to):
+        f_in_dev = ['0']*2
+        L1 = min(self._low[l1_from:l1_to])
+        L2 = min(self._low[l2_from:l2_to])
+
+        D1 = self._diff[l1_from:l1_to][np.array(self._diff[l1_from:l1_to]).argmin()]
+        D2 = self._diff[l2_from:l2_to][np.array(self._diff[l2_from:l2_to]).argmin()]
+        M1 = self._macd[l1_from:l1_to][np.array(self._macd[l1_from:l1_to]).argmin()]
+        M2 = self._macd[l2_from:l2_to][np.array(self._macd[l2_from:l2_to]).argmin()]
+        if (L2 <= L1 and D2 > D1) or (L2 < L1 and D2 >= D1):
+            f_in_dev[0] = '1'   # 快线内部底背驰
+        if (L2 <= L1 and M2 > M1) or (L2 < L1 and M2 >= M1):
+            f_in_dev[1] = '1'   # MACD柱内部底背驰
+        return f_in_dev
+
+    def in_top_dev(self, h1_from, h1_to, h2_from, h2_to):
+        f_in_dev = ['0']*2
+        H1 = max(self._high[h1_from:h1_to])
+        H2 = max(self._high[h2_from:h2_to])
+
+        D1 = self._diff[h1_from:h1_to][np.array(self._diff[h1_from:h1_to]).argmax()]
+        D2 = self._diff[h2_from:h2_to][np.array(self._diff[h2_from:h2_to]).argmax()]
+        M1 = self._macd[h1_from:h1_to][np.array(self._macd[h1_from:h1_to]).argmax()]
+        M2 = self._macd[h2_from:h2_to][np.array(self._macd[h2_from:h2_to]).argmax()]
+        if (H2 >= H1 and D2 < D1) or (H2 > H1 and D2 <= D1):
+            f_in_dev[0] = '1'   # 快线内部顶背驰
+        if (H2 >= H1 and M2 < M1) or (H2 > H1 and M2 <= M1):
+            f_in_dev[1] = '1'   # MACD柱内部顶背驰
+        return f_in_dev
+
+    def check_dev(self):
         """
         return:
             an array with length of 8,
             index 0~3       # bottom divergence
             index 4~7       # top divergence
         """
+        # 普通背离
         f_macd_dev = ['0']*8
+        # 普通隔山背离
         f_sep_dev = ['0']*8
+        # 内部背离
+        f_in_dev = ['0']*4
+        # 内部隔山背离
+        f_in_sep_dev = ['0']*4
+
         if len(self._diff) == 1:
-            self._stg_macd_dev.append(''.join(f_macd_dev))
-            self._stg_sep_dev.append(''.join(f_sep_dev))
             self._t_cross.append(0)
-            return f_macd_dev, f_sep_dev
+            return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
 
         if self._diff[-2] < self._dea[-2] and self._diff[-1] > self._dea[-1]:     # jincha
             # 1. record
-            self._inters.append(Intersection('K', self._time[-2], self._time[-1], len(self._close) - 1))
+            self._inters.append(EventPoint('K', self._time[-2], self._time[-1], len(self._close) - 1))
             self._t_cross.append(1)
 
             # 2. 普通底背离
-            if len(self._inters) < 4 or \
-                not (self._inters[-2].t_inter == 'D' and self._inters[-3].t_inter == 'K' and self._inters[-4].t_inter == 'D'):
-                self._stg_macd_dev.append(''.join(f_macd_dev))
-                self._stg_sep_dev.append(''.join(f_sep_dev))
-                return f_macd_dev, f_sep_dev
+            if len(self._inters) < 4 or not (self._inters[-2].event_name == 'D' and \
+                self._inters[-3].event_name == 'K' and self._inters[-4].event_name == 'D'):
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
 
             f_macd_dev[0:4] = self.make_judge_jincha(self._inters[-2], self._inters[-1], 
                                                 self._inters[-4], self._inters[-3])
 
             # 3. 隔山底背离
-            if len(self._inters) < 6 or not (self._inters[-5].t_inter == 'K' and self._inters[-6].t_inter == 'D'):
-                self._stg_macd_dev.append(''.join(f_macd_dev))
-                self._stg_sep_dev.append(''.join(f_sep_dev))
-                return f_macd_dev, f_sep_dev
+            if len(self._inters) < 6 or not (self._inters[-5].event_name == 'K' and self._inters[-6].event_name == 'D'):
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
 
             f_sep_dev[0:4] = self.make_judge_jincha(self._inters[-2], self._inters[-1], 
                                                self._inters[-6], self._inters[-5])
         elif self._diff[-2] > self._dea[-2] and self._diff[-1] < self._dea[-1]:   # sicha
             # 1. record
-            self._inters.append(Intersection('D', self._time[-2], self._time[-1], len(self._close) - 1))
+            self._inters.append(EventPoint('D', self._time[-2], self._time[-1], len(self._close) - 1))
             self._t_cross.append(-1)
 
             # 2. 普通顶背离
-            if len(self._inters) < 4 or \
-                not (self._inters[-2].t_inter == 'K' and self._inters[-3].t_inter == 'D' and self._inters[-4].t_inter == 'K'):
-                self._stg_macd_dev.append(''.join(f_macd_dev))
-                self._stg_sep_dev.append(''.join(f_sep_dev))
-                return f_macd_dev, f_sep_dev
+            if len(self._inters) < 4 or not (self._inters[-2].event_name == 'K' and \
+                self._inters[-3].event_name == 'D' and self._inters[-4].event_name == 'K'):
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
 
             f_macd_dev[4:8] = self.make_judge_sicha(self._inters[-2], self._inters[-1], 
                                                self._inters[-4], self._inters[-3])
 
             # 3. 隔山顶背离
-            if len(self._inters) < 6 or not (self._inters[-5].t_inter == 'D' and self._inters[-6].t_inter == 'K'):
-                self._stg_macd_dev.append(''.join(f_macd_dev))
-                self._stg_sep_dev.append(''.join(f_sep_dev))
-                return f_macd_dev, f_sep_dev
+            if len(self._inters) < 6 or not (self._inters[-5].event_name == 'D' and self._inters[-6].event_name == 'K'):
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
 
             f_sep_dev[4:8] = self.make_judge_sicha(self._inters[-2], self._inters[-1], 
                                               self._inters[-6], self._inters[-5])
         else:
             self._t_cross.append(0)
 
-        self._stg_macd_dev.append(''.join(f_macd_dev))
-        self._stg_sep_dev.append(''.join(f_sep_dev))
-        return f_macd_dev, f_sep_dev
+        # 内部背离
+        if len(self._inters) > 0 and self._inters[-1].event_name == 'D':     # sc
+            par_points = self.get_last_par_points(self._inters[-1].end_time, 'BP')
 
-    '''
-    def check_macd_dev(self):
-        """
-        return:
-            an array with length of 8,
-            index 0~3       # bottom divergence
-            index 4~7       # top divergence
-        """
-        f_dev = ['0']*8
-        if len(self._diff) == 1:
-            self._stg_f_dev.append(''.join(f_dev))
-            return f_dev
+            # 当前非分型点
+            if len(par_points) > 0 and par_points[-1].end_time != self.t_data.time:
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
 
-        if self._diff[-2] < self._dea[-2] and self._diff[-1] > self._dea[-1]:     # jincha
-            # 1. record
-            self._inters.append(Intersection('K', self._time[-1], self.t_data.time, len(self._close) - 1))
-            if len(self._inters) < 4:
-                return f_dev 
+            # 内部普通底背离
+            if len(par_points) == 2:
+                l1_from, l1_to = self._inters[-1].close_idx, par_points[-2].close_idx
+                l2_from, l2_to = par_points[-2].close_idx, par_points[-1].close_idx
+            elif len(par_points) > 2:
+                l1_from, l1_to = par_points[-3].close_idx, par_points[-2].close_idx
+                l2_from, l2_to = par_points[-2].close_idx, par_points[-1].close_idx
+            elif len(par_points) < 2:
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
 
-            # 2. bottom divergence
-            assert self._inters[-2].t_inter == 'D' \
-                and self._inters[-3].t_inter == 'K' \
-                and self._inters[-4].t_inter == 'D'
+            f_in_dev[0:2] = self.in_bottom_dev(l1_from, l1_to, l2_from, l2_to)
 
-            # [s, e)
-            c_max1 = max(self._close[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
-            c_max2 = max(self._close[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
-            if c_max1 <= c_max2:
-                f_dev[0] = '1'
+            # 内部隔山底背离
+            if len(par_points) == 3:
+                l1_in_from, l1_in_to = self._inters[-1].close_idx, par_points[-3].close_idx
+                l2_in_from, l2_in_to = par_points[-2].close_idx, par_points[-1].close_idx
+            elif len(par_points) > 3:
+                l1_in_from, l1_in_to = par_points[-4].close_idx, par_points[-3].close_idx
+                l2_in_from, l2_in_to = par_points[-2].close_idx, par_points[-1].close_idx
+            elif len(par_points) < 3:
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
 
-            diff_max1 = max(self._diff[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
-            diff_max2 = max(self._diff[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
-            if diff_max1 > diff_max2:
-                f_dev[1] = '1'
+            f_in_sep_dev[0:2] = self.in_bottom_dev(l1_in_from, l1_in_to, l2_in_from, l2_in_to)
+        elif len(self._inters) > 0 and self._inters[-1].event_name == 'K':   # jc
+            par_points = self.get_last_par_points(self._inters[-1].end_time, 'TP')
 
-            macd_max1 = max(self._macd[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
-            macd_max2 = max(self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
-            if macd_max1 > macd_max2:
-                f_dev[2] = '1'
+            # 当前非分型点
+            if len(par_points) > 0 and par_points[-1].end_time != self.t_data.time:
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
 
-            macd_area1 = sum([abs(m) for m in self._macd[self._inters[-2].close_idx:(self._inters[-1].close_idx)]])
-            macd_area2 = sum([abs(m) for m in self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)]])
-            if macd_area1 > macd_area2:
-                f_dev[3] = '1'
-        elif self._diff[-2] > self._dea[-2] and self._diff[-1] < self._dea[-1]:   # sicha
-            # 1. record
-            self._inters.append(Intersection('D', self._time[-1], self.t_data.time, len(self._close) - 1))
-            if len(self._inters) < 4:
-                return f_dev
+            # 内部普通顶背离
+            if len(par_points) == 2:
+                h1_from, h1_to = self._inters[-1].close_idx, par_points[-2].close_idx
+                h2_from, h2_to = par_points[-2].close_idx, par_points[-1].close_idx
+            elif len(par_points) > 2:
+                h1_from, h1_to = par_points[-3].close_idx, par_points[-2].close_idx
+                h2_from, h2_to = par_points[-2].close_idx, par_points[-1].close_idx
+            elif len(par_points) < 2:
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
 
-            # 2. top divergence
-            assert self._inters[-2].t_inter == 'K' \
-                and self._inters[-3].t_inter == 'D' \
-                and self._inters[-4].t_inter == 'K'
+            f_in_dev[2:4] = self.in_top_dev(h1_from, h1_to, h2_from, h2_to)
 
-            # [s, e)
-            c_max1 = max(self._close[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
-            c_max2 = max(self._close[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
-            if c_max1 >= c_max2:
-                f_dev[4] = '1'
+            # 内部隔山顶背离
+            if len(par_points) == 3:
+                h1_in_from, h1_in_to = self._inters[-1].close_idx, par_points[-3].close_idx
+                h2_in_from, h2_in_to = par_points[-2].close_idx, par_points[-1].close_idx
+            elif len(par_points) > 3:
+                h1_in_from, h1_in_to = par_points[-4].close_idx, par_points[-3].close_idx
+                h2_in_from, h2_in_to = par_points[-2].close_idx, par_points[-1].close_idx
+            elif len(par_points) < 3:
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
 
-            diff_max1 = max(self._diff[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
-            diff_max2 = max(self._diff[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
-            if diff_max1 < diff_max2:
-                f_dev[5] = '1'
+            f_in_sep_dev[2:4] = self.in_top_dev(h1_in_from, h1_in_to, h2_in_from, h2_in_to)
 
-            macd_max1 = max(self._macd[self._inters[-2].close_idx:(self._inters[-1].close_idx)])
-            macd_max2 = max(self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)])
-            if macd_max1 < macd_max2:
-                f_dev[6] = '1'
-
-            macd_area1 = sum([abs(m) for m in self._macd[self._inters[-2].close_idx:(self._inters[-1].close_idx)]])
-            macd_area2 = sum([abs(m) for m in self._macd[self._inters[-4].close_idx:(self._inters[-3].close_idx)]])
-            if macd_area1 < macd_area2:
-                f_dev[7] = '1'
-        self._stg_f_dev.append(''.join(f_dev))
-        return f_dev
-    '''
+        return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
 
     def iterate(self, data):
         assert isinstance(data, dict)
@@ -765,6 +789,30 @@ class Option(Contract):
             print('final ema12:', self._ema12)
 
         return self.clct_all_var()
+
+    def make_judge(self):
+        # boll
+        f_boll = self.check_boll()
+        self._stg_f_boll.append(''.join(f_boll))
+
+        # parting
+        f_par = self.check_parting()
+        self._stg_f_par.append(''.join(f_par))
+
+        # dmi
+        f_dmi = self.check_dmi()
+        self._stg_f_dmi.append(''.join(f_dmi))
+        
+        # dev
+        f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev = self.check_dev()
+        self._stg_macd_dev.append(''.join(f_macd_dev))
+        self._stg_sep_dev.append(''.join(f_sep_dev))
+        self._stg_in_dev.append(''.join(f_in_dev))
+        self._stg_in_sep_dev.append(''.join(f_in_sep_dev))
+
+        # guppy
+        f_guppy = self.check_guppy()
+        self._stg_f_guppy.append(''.join(f_guppy))
 
 if __name__ == '__main__':
 
@@ -803,11 +851,7 @@ if __name__ == '__main__':
                            avg_prices = float(items[10])
                         )
             cc.iterate(d_data)
-            cc.check_boll()
-            cc.check_parting()
-            cc.check_dmi()
-            cc.check_macd_dev()
-            cc.check_guppy()
+            cc.make_judge()
 
             # base index
             res_str = cc.clct_for_validate()
@@ -842,6 +886,10 @@ if __name__ == '__main__':
                         row_head.append('_stg_sep_dev(隔山背离)')
                     elif k == '_stg_f_guppy':
                         row_head.append('_stg_f_guppy(顾比策略)')
+                    elif k == '_stg_in_dev':
+                        row_head.append('_stg_in_dev(内部背离)')
+                    elif k == '_stg_in_sep_dev':
+                        row_head.append('_stg_in_sep_dev(内部隔山背离)')
                     elif k == '_stg_f_dmi':
                         row_head.append('_stg_f_adx_ex')
                     else:
