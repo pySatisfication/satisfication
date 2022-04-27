@@ -74,6 +74,7 @@ class Contract(object):
         self._macd = []
 
         self._inters = []
+        self._t_cross = []
 
         # boll 
         self._boll_st = []
@@ -190,10 +191,11 @@ class Contract(object):
                 continue
             if k in ['_inters', '_cur_t_data', 
                      '_tr', '_hd', '_ld', '_dmp', '_dmm', '_pdi', '_mdi', '_adx', 
+                     '_hh', '_ll', 
                      '_ema12', '_ema26']:
                 continue
             if k == '_stg_f_dmi':
-                m_var[k] = v[-1][-2:]
+                m_var[k] = v[-1][-1:]
             else:
                 m_var[k] = v[-1]
         return json.dumps(m_var)
@@ -270,16 +272,16 @@ class Option(Contract):
     def update_macd(self):
         assert len(self._ema12) > 0 and len(self._ema26) > 0
         # diff
-        self._diff.append(self._ema12[-1] - self._ema26[-1])
+        self._diff.append(round(self._ema12[-1] - self._ema26[-1], 2))
         self._diff = self._diff[-_RESERVE_DAYS:]
 
         # dea
-        cur_val = op_util.ema_cc(self._dea, self._diff[-1], _DEA_DEFAULT_N)
-        self._dea.append(round(cur_val, 2))
+        cur_val = round(op_util.ema_cc(self._dea, self._diff[-1], _DEA_DEFAULT_N), 2)
+        self._dea.append(cur_val)
         self._dea = self._dea[-_RESERVE_DAYS:]
 
         # macd
-        cur_val = 2*(self._diff[-1] - self._dea[-1])
+        cur_val = round(2*(self._diff[-1] - self._dea[-1]), 2)
         self._macd.append(cur_val)
         self._macd = self._macd[-_RESERVE_DAYS:]
 
@@ -292,22 +294,22 @@ class Option(Contract):
             N = len(self._close)
 
         # boll_st
-        cur_boll_st = op_util.ma(self._close, N)
+        cur_boll_st = round(op_util.ma(self._close, N), 6)
         self._boll_st.append(cur_boll_st)
         self._boll_st = self._boll_st[-_RESERVE_DAYS:]
 
         # ub_st
-        cur_ub_st = cur_boll_st + M * op_util.std(self._close, N)
+        cur_ub_st = round(cur_boll_st + M * op_util.std(self._close, N), 6)
         self._ub_st.append(cur_ub_st)
         self._ub_st = self._ub_st[-_RESERVE_DAYS:]
 
         # lb_st
-        cur_lb_st = cur_boll_st - M * op_util.std(self._close, N)
+        cur_lb_st = round(cur_boll_st - M * op_util.std(self._close, N), 6)
         self._lb_st.append(cur_lb_st)
         self._lb_st = self._lb_st[-_RESERVE_DAYS:]
 
         # gravity_line
-        cur_gl = round((self._high[-1] + self._low[-1] + self._open[-1] + 3 * self._close[-1]) / 6.0, 2)
+        cur_gl = round((self._high[-1] + self._low[-1] + self._open[-1] + 3 * self._close[-1]) / 6.0, 6)
         self._gravity_line.append(cur_gl)
 
         if len(self._boll_st) == 1:
@@ -333,31 +335,22 @@ class Option(Contract):
         self._of_f_ub_st.append(1 if cur_gl > self._ub_st[-1] else 0)
         self._of_f_lb_st.append(1 if cur_gl < self._ub_st[-1] else 0)
 
-    def check_boll(self):
-        f_boll = ['0']*4
-        f_boll[0] = str(self._trend_to_rise[-1])
-        f_boll[1] = str(self._trend_to_fall[-1])
-        f_boll[2] = str(self._of_f_ub_st[-1])
-        f_boll[3] = str(self._of_f_lb_st[-1])
-        self._stg_f_boll.append(''.join(f_boll))
-        return f_boll
-
     def update_guppyline(self, N = 2):
         self._boll_st_s1 = self._boll_st
 
         if len(self._boll_st_s1) < N:
             N = len(self._boll_st_s1)
 
-        self._boll_st_s2.append(op_util.ma(self._boll_st_s1, N))
+        self._boll_st_s2.append(round(op_util.ma(self._boll_st_s1, N), 6))
         self._boll_st_s2 = self._boll_st_s2[-_RESERVE_DAYS:]
 
-        self._boll_st_s3.append(op_util.ma(self._boll_st_s2, N))
+        self._boll_st_s3.append(round(op_util.ma(self._boll_st_s2, N), 6))
         self._boll_st_s3 = self._boll_st_s3[-_RESERVE_DAYS:]
 
-        self._boll_st_s4.append(op_util.ma(self._boll_st_s3, N))
+        self._boll_st_s4.append(round(op_util.ma(self._boll_st_s3, N), 6))
         self._boll_st_s4 = self._boll_st_s4[-_RESERVE_DAYS:]
 
-        self._boll_st_s5.append(op_util.ma(self._boll_st_s4, N))
+        self._boll_st_s5.append(round(op_util.ma(self._boll_st_s4, N), 6))
         self._boll_st_s5 = self._boll_st_s5[-_RESERVE_DAYS:]
 
     def update_parting(self):
@@ -470,6 +463,15 @@ class Option(Contract):
                                  _ADX_DEFAULT_M)
         self._adx.append(round(cur_adx, 2))
 
+    def check_boll(self):
+        f_boll = ['0']*4
+        f_boll[0] = str(self._trend_to_rise[-1])
+        f_boll[1] = str(self._of_f_ub_st[-1])
+        f_boll[2] = str(self._trend_to_fall[-1])
+        f_boll[3] = str(self._of_f_lb_st[-1])
+        self._stg_f_boll.append(''.join(f_boll))
+        return f_boll
+
     def check_parting(self):
         f_par = ['0']*3
         if len(self._close) <= 2:
@@ -491,13 +493,11 @@ class Option(Contract):
         return f_par
 
     def check_guppy(self):
-        f_guppy = ['0'] * 3
+        f_guppy = ['0'] * 2
         if self._boll_st_s1[-1] < self._boll_st_s5[-1]:
+            f_guppy[0] = '-1'
+        elif self._boll_st_s1[-1] >= self._boll_st_s5[-1]:
             f_guppy[0] = '1'
-        elif self._boll_st_s1[-1] > self._boll_st_s5[-1]:
-            f_guppy[0] = '2'
-        else:
-            f_guppy[0] = '0'
 
         if len(self._boll_st_s1) < 2:
             self._stg_f_guppy.append(''.join(f_guppy))
@@ -506,15 +506,15 @@ class Option(Contract):
         s1_2, s5_2 = self._boll_st_s1[-2], self._boll_st_s5[-2]
         s1_1, s5_1 = self._boll_st_s1[-1], self._boll_st_s5[-1]
         if s1_2 > s5_2 and s1_1 < s5_1:
-            f_guppy[1] = '1';
+            f_guppy[1] = '-1';
         elif s1_2 < s5_2 and s1_1 > s5_1:
-            f_guppy[2] = '1';
+            f_guppy[1] = '1';
 
         self._stg_f_guppy.append(''.join(f_guppy))
         return f_guppy
 
     def check_dmi(self):
-        f_dmi = ['0']*8
+        f_dmi = ['0']*7
         if len(self._close) < 2:
             self._stg_f_dmi.append(''.join(f_dmi))
             return f_dmi
@@ -533,10 +533,12 @@ class Option(Contract):
             f_dmi[5] = '1'
 
         # extreme point check
-        if op_util.ref(self._adx, 1) > 60 and self._adx[-1] < 60.0:
+        if op_util.ref(self._adx, 1) > 60.0 and self._adx[-1] < 60.0:
+            f_dmi[6] = '-1'
+        elif op_util.ref(self._adx, 1) < -60.0 and self._adx[-1] > -60.0:
             f_dmi[6] = '1'
-        elif op_util.ref(self._adx, 1) < -60.0 and self._adx[-1] > 60.0:
-            f_dmi[7] = '1'
+        else:
+            f_dmi[6] = '0'
 
         self._stg_f_dmi.append(''.join(f_dmi))
         return f_dmi
@@ -601,60 +603,57 @@ class Option(Contract):
         if len(self._diff) == 1:
             self._stg_macd_dev.append(''.join(f_macd_dev))
             self._stg_sep_dev.append(''.join(f_sep_dev))
+            self._t_cross.append(0)
             return f_macd_dev, f_sep_dev
 
         if self._diff[-2] < self._dea[-2] and self._diff[-1] > self._dea[-1]:     # jincha
             # 1. record
-            self._inters.append(Intersection('K', self._time[-1], self.t_data.time, len(self._close) - 1))
-            if len(self._inters) < 4:
+            self._inters.append(Intersection('K', self._time[-2], self._time[-1], len(self._close) - 1))
+            self._t_cross.append(1)
+
+            # 2. 普通底背离
+            if len(self._inters) < 4 or \
+                not (self._inters[-2].t_inter == 'D' and self._inters[-3].t_inter == 'K' and self._inters[-4].t_inter == 'D'):
                 self._stg_macd_dev.append(''.join(f_macd_dev))
                 self._stg_sep_dev.append(''.join(f_sep_dev))
                 return f_macd_dev, f_sep_dev
-
-            # 2. 普通底背离
-            assert self._inters[-2].t_inter == 'D' \
-                and self._inters[-3].t_inter == 'K' \
-                and self._inters[-4].t_inter == 'D'
 
             f_macd_dev[0:4] = self.make_judge_jincha(self._inters[-2], self._inters[-1], 
                                                 self._inters[-4], self._inters[-3])
 
-            if len(self._inters) < 6:
+            # 3. 隔山底背离
+            if len(self._inters) < 6 or not (self._inters[-5].t_inter == 'K' and self._inters[-6].t_inter == 'D'):
                 self._stg_macd_dev.append(''.join(f_macd_dev))
                 self._stg_sep_dev.append(''.join(f_sep_dev))
                 return f_macd_dev, f_sep_dev
-
-            # 3. 隔山底背离
-            assert self._inters[-5].t_inter == 'K' and self._inters[-6].t_inter == 'D'
 
             f_sep_dev[0:4] = self.make_judge_jincha(self._inters[-2], self._inters[-1], 
                                                self._inters[-6], self._inters[-5])
         elif self._diff[-2] > self._dea[-2] and self._diff[-1] < self._dea[-1]:   # sicha
             # 1. record
-            self._inters.append(Intersection('D', self._time[-1], self.t_data.time, len(self._close) - 1))
-            if len(self._inters) < 4:
+            self._inters.append(Intersection('D', self._time[-2], self._time[-1], len(self._close) - 1))
+            self._t_cross.append(-1)
+
+            # 2. 普通顶背离
+            if len(self._inters) < 4 or \
+                not (self._inters[-2].t_inter == 'K' and self._inters[-3].t_inter == 'D' and self._inters[-4].t_inter == 'K'):
                 self._stg_macd_dev.append(''.join(f_macd_dev))
                 self._stg_sep_dev.append(''.join(f_sep_dev))
                 return f_macd_dev, f_sep_dev
-
-            # 2. 普通顶背离
-            assert self._inters[-2].t_inter == 'K' \
-                and self._inters[-3].t_inter == 'D' \
-                and self._inters[-4].t_inter == 'K'
 
             f_macd_dev[4:8] = self.make_judge_sicha(self._inters[-2], self._inters[-1], 
                                                self._inters[-4], self._inters[-3])
 
-            if len(self._inters) < 6:
+            # 3. 隔山顶背离
+            if len(self._inters) < 6 or not (self._inters[-5].t_inter == 'D' and self._inters[-6].t_inter == 'K'):
                 self._stg_macd_dev.append(''.join(f_macd_dev))
                 self._stg_sep_dev.append(''.join(f_sep_dev))
                 return f_macd_dev, f_sep_dev
 
-            # 3. 隔山顶背离
-            assert self._inters[-5].t_inter == 'D' and self._inters[-6].t_inter == 'K'
-
             f_sep_dev[4:8] = self.make_judge_sicha(self._inters[-2], self._inters[-1], 
                                               self._inters[-6], self._inters[-5])
+        else:
+            self._t_cross.append(0)
 
         self._stg_macd_dev.append(''.join(f_macd_dev))
         self._stg_sep_dev.append(''.join(f_sep_dev))
@@ -844,7 +843,7 @@ if __name__ == '__main__':
                     elif k == '_stg_f_guppy':
                         row_head.append('_stg_f_guppy(顾比策略)')
                     elif k == '_stg_f_dmi':
-                        row_head.append('_stg_f_adx(ADX极值)')
+                        row_head.append('_stg_f_adx_ex')
                     else:
                         row_head.append(k)
                 val.append(v)
@@ -857,5 +856,20 @@ if __name__ == '__main__':
 
         file_name = file_path.split('/')[-1]
         print(file_path, file_name)
-        fu.save_xlsx(os.path.join(out_path, file_name + '.xlsx'), res_arr.T.tolist())
+
+        tips = '指标说明：\n \
+        1、顾比策略: \n \
+            位置1: boll_st_s1对比boll_st_s5（-1: 小于, 1:大于等于）\n \
+            位置2: boll_st_s1是否穿过boll_st_s5（0: 未交叉, 1: s1上穿s5, -1: s1下穿s5）\n \
+        2、背离: \n \
+            位置1~4: 分别表示是否MACD底背离、DIFF底背离、MACD柱背离、MACD柱面积底背离（1: 是, 0:否） \n \
+            位置5~8: 分别表示是否MACD顶背离、DIFF顶背离、MACD顶背离、MACD柱面积顶背离（1: 是, 0:否） \n \
+        3、分型: \n \
+            位置1: 是否有顶分型or底分型（1: 是, 0:否） \n \
+            位置2: 是否顶分型（1: 是, 0:否） \n \
+            位置3: 是否底分型（1: 是, 0:否） \n \
+        4、ADX极值: \n \
+            位置1: adx是否上下穿过60&-60（0: 非极值点, 1: 上穿-60.0, -1: 下穿60）\
+        '
+        fu.save_xlsx(os.path.join(out_path, file_name + '.xlsx'), res_arr.T.tolist(), tips=tips)
 
