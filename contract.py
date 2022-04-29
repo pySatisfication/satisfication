@@ -22,6 +22,7 @@ _DMM_DEFAULT_M = 1
 _ADX_DEFAULT_N = 14
 _ADX_DEFAULT_M = 1
 _GUPPY_DEFAULT_N = 2
+DEBUG = False
 
 class EventPoint(object):
     def __init__(self, event, start, end, close_idx):
@@ -43,8 +44,8 @@ class EventPoint(object):
         return self._event
 
     def print(self):
-        return 'type:{},start:{},end:{},close_idx:{}'.format(
-            self._type, self._start_time, self._end_time, self._close_idx)
+        return 'event:{},start:{},end:{},close_idx:{}'.format(
+            self._event, self._start_time, self._end_time, self._close_idx)
 
 class Contract(object):
     def __init__(self, c_code):
@@ -77,9 +78,9 @@ class Contract(object):
         self._diff = []
         self._dea = []
         self._macd = []
+        self._t_cross = []  # DIFF&DEA是否交叉
 
         self._inters = []   # 金叉死叉点
-        self._t_cross = []  # DIFF&DEA是否交叉
         self._pars = []     # 分型点
 
         # boll 
@@ -172,13 +173,27 @@ class Contract(object):
 
     def check_data_valid(self):
         for k1, v1 in self.__dict__.items():
-            if not isinstance(v, list):
+            if not isinstance(v1, list):
+                continue
+            if k1 in ['_inters', '_pars']:
                 continue
             for k2, v2 in self.__dict__.items():
-                if not isinstance(v, list) or k1 == k2:
+                if not isinstance(v2, list) or k1 == k2:
+                    continue
+                if k2 in ['_inters', '_pars']:
                     continue
                 if len(v1) != len(v2):
                     raise ValueError('inconsistent data length')
+
+    def trim(self):
+        for k, v in self.__dict__.items():
+            if not isinstance(v, list) or len(v) == 0:
+                continue
+            if k in ['_inters', '_cur_t_data', '_pars']:
+                continue
+            if exclude_stg and k.startswith('_stg'):
+                continue
+            v = v[-_RESERVE_DAYS:]
 
     # 存储Redis
     def clct_all_var(self, exclude_stg=True):
@@ -186,7 +201,7 @@ class Contract(object):
         for k, v in self.__dict__.items():
             if not isinstance(v, list) or len(v) == 0:
                 continue
-            if k in ['_inters', '_cur_t_data', '_pars']:
+            if k in ['_inters', '_pars']:
                 continue
             if exclude_stg and k.startswith('_stg'):
                 continue
@@ -202,7 +217,8 @@ class Contract(object):
             if k in ['_inters', '_cur_t_data', '_pars', 
                      '_tr', '_hd', '_ld', '_dmp', '_dmm', '_pdi', '_mdi', '_adx', 
                      '_hh', '_ll', 
-                     '_ema12', '_ema26']:
+                     #'_ema12', '_ema26'
+                     ]:
                 continue
             if k == '_stg_f_dmi':
                 m_var[k] = v[-1][-1:]
@@ -215,9 +231,16 @@ class Contract(object):
         traverse to get lastest parting points
         '''
         last_pars = []
-        for idx in range(0, len(self._pars)):
-            if self._pars[-idx].end_time > inter_time and self._pars[-idx].event_name == event_name:
-                last_pars.insert(0, self._pars[-idx])
+        for idx in range(1, len(self._pars)):
+            if self._pars[-idx].end_time > inter_time:
+                if self._pars[-idx].event_name == event_name:
+                    last_pars.insert(0, self._pars[-idx])
+            else:
+                break
+        if DEBUG:
+            print("last pars:", self._pars[-1].print())
+            print("inter_time:", inter_time, event_name)
+            print("res:", len(last_pars))
         return last_pars
 
 class Option(Contract):
@@ -249,28 +272,13 @@ class Option(Contract):
         assert self.t_data.close is not None and isinstance(self.t_data.close, float)
 
         self._open.append(self.t_data.open)
-        self._open = self._open[-_RESERVE_DAYS:]
-
         self._high.append(self.t_data.high)
-        self._high = self._high[-_RESERVE_DAYS:]
-
         self._low.append(self.t_data.low)
-        self._low = self._low[-_RESERVE_DAYS:]
-
         self._close.append(self.t_data.close)
-        self._close = self._close[-_RESERVE_DAYS:]
-
         self._volumes.append(self.t_data.volumes)
-        self._volumes = self._volumes[-_RESERVE_DAYS:]
-
         self._holds.append(self.t_data.holds)
-        self._holds = self._holds[-_RESERVE_DAYS:]
-
         self._amounts.append(self.t_data.amounts)
-        self._amounts = self._amounts[-_RESERVE_DAYS:]
-
         self._avg_prices.append(self.t_data.avg_prices)
-        self._avg_prices = self._avg_prices[-_RESERVE_DAYS:]
 
     def update_ema(self):
         """
@@ -282,28 +290,23 @@ class Option(Contract):
         # ema in 12 days
         cur_val = op_util.ema_cc(self._ema12, self._close[-1], _EMA12_DEFAULT_N)
         self._ema12.append(round(cur_val, 2))
-        self._ema12 = self._ema12[-_RESERVE_DAYS:]
 
         # 26 days
         cur_val = op_util.ema_cc(self._ema26, self._close[-1], _EMA26_DEFAULT_N)
         self._ema26.append(round(cur_val, 2))
-        self._ema26 = self._ema26[-_RESERVE_DAYS:]
 
     def update_macd(self):
         assert len(self._ema12) > 0 and len(self._ema26) > 0
         # diff
         self._diff.append(round(self._ema12[-1] - self._ema26[-1], 2))
-        self._diff = self._diff[-_RESERVE_DAYS:]
 
         # dea
         cur_val = round(op_util.ema_cc(self._dea, self._diff[-1], _DEA_DEFAULT_N), 2)
         self._dea.append(cur_val)
-        self._dea = self._dea[-_RESERVE_DAYS:]
 
         # macd
         cur_val = round(2*(self._diff[-1] - self._dea[-1]), 2)
         self._macd.append(cur_val)
-        self._macd = self._macd[-_RESERVE_DAYS:]
 
     # boll
     def update_boll(self, N=20, M=2):
@@ -316,17 +319,14 @@ class Option(Contract):
         # boll_st
         cur_boll_st = round(op_util.ma(self._close, N), 6)
         self._boll_st.append(cur_boll_st)
-        self._boll_st = self._boll_st[-_RESERVE_DAYS:]
 
         # ub_st
         cur_ub_st = round(cur_boll_st + M * op_util.std(self._close, N), 6)
         self._ub_st.append(cur_ub_st)
-        self._ub_st = self._ub_st[-_RESERVE_DAYS:]
 
         # lb_st
         cur_lb_st = round(cur_boll_st - M * op_util.std(self._close, N), 6)
         self._lb_st.append(cur_lb_st)
-        self._lb_st = self._lb_st[-_RESERVE_DAYS:]
 
         # gravity_line
         cur_gl = round((self._high[-1] + self._low[-1] + self._open[-1] + 3 * self._close[-1]) / 6.0, 6)
@@ -362,16 +362,9 @@ class Option(Contract):
             N = len(self._boll_st_s1)
 
         self._boll_st_s2.append(round(op_util.ma(self._boll_st_s1, N), 6))
-        self._boll_st_s2 = self._boll_st_s2[-_RESERVE_DAYS:]
-
         self._boll_st_s3.append(round(op_util.ma(self._boll_st_s2, N), 6))
-        self._boll_st_s3 = self._boll_st_s3[-_RESERVE_DAYS:]
-
         self._boll_st_s4.append(round(op_util.ma(self._boll_st_s3, N), 6))
-        self._boll_st_s4 = self._boll_st_s4[-_RESERVE_DAYS:]
-
         self._boll_st_s5.append(round(op_util.ma(self._boll_st_s4, N), 6))
-        self._boll_st_s5 = self._boll_st_s5[-_RESERVE_DAYS:]
 
     def update_parting(self):
         if len(self._close) <= 2:
@@ -440,7 +433,6 @@ class Option(Contract):
         else:
             cur_val = op_util.sma_cc(self._tr, cur_tr, _TR_DEFAULT_N, _TR_DEFAULT_M)
             self._tr.append(round(cur_val, 2))
-        self._tr = self._tr[-_RESERVE_DAYS:]
 
         # hd&ld
         self._hd.append(self._high[-1] - op_util.ref(self._high, 1))
@@ -825,9 +817,11 @@ if __name__ == '__main__':
     if not os.path.exists(out_path):
         os.mkdir(out_path)
 
-    files = fu.get_files(sys.argv[1], '_6_10')
+
+    ct_agent = {}
+
+    files = sorted(fu.get_files(sys.argv[1], '_6_5'))
     for file_path in files:
-        cc = Option('null')
         t_data = []
         with open(file_path, 'r') as f:
             for line in f.readlines():
@@ -850,8 +844,18 @@ if __name__ == '__main__':
                            amounts = float(items[9]),
                            avg_prices = float(items[10])
                         )
+
+            c_code = items[1]
+            if c_code in ct_agent:
+                cc = ct_agent[c_code]
+            else:
+                cc = Option(c_code)
+                ct_agent[c_code] = cc
+            t_data = []
+
             cc.iterate(d_data)
             cc.make_judge()
+            cc.check_data_valid()
 
             # base index
             res_str = cc.clct_for_validate()
