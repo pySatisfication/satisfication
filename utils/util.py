@@ -111,7 +111,7 @@ def std(x, N):
     if len(x) < N:
         N = len(x)
 
-    return np.std(x[len(x)-N:])
+    return np.std(x[len(x)-N:], ddof=1)
 
 @op_wrapper
 def boll(x, N=20, M=2):

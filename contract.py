@@ -8,11 +8,10 @@ import utils.util as op_util
 import utils.redis_ts_util as rtu
 import utils.file_util as fu
 
-_RESERVE_DAYS = 300
+_RESERVE_DAYS = 100
 _EMA12_DEFAULT_N = 12
 _EMA26_DEFAULT_N = 26
 _DEA_DEFAULT_N = 9
-#_DMI_DEFAULT_N = 14
 _TR_DEFAULT_N = 14
 _TR_DEFAULT_M = 1
 _DMP_DEFAULT_N = 14
@@ -47,6 +46,19 @@ class EventPoint(object):
         return 'event:{},start:{},end:{},close_idx:{}'.format(
             self._event, self._start_time, self._end_time, self._close_idx)
 
+class CrossPoint(EventPoint):
+    def __init__(self, event, start, end, close_idx, valid=0):
+        super(CrossPoint, self).__init__(event, start, end, close_idx)
+        self._valid = valid
+
+    def check_valid(self):
+        pass
+
+class PartingPoint(EventPoint):
+    def __init__(self, event, start, end, close_idx, valid=0):
+        super(PartingPoint, self).__init__(event, start, end, close_idx)
+        self._valid = valid
+
 class Contract(object):
     def __init__(self, c_code):
         self._c_code = c_code
@@ -78,10 +90,10 @@ class Contract(object):
         self._diff = []
         self._dea = []
         self._macd = []
-        self._t_cross = []  # DIFF&DEA是否交叉
+        self._cross = []  # DIFF&DEA是否交叉
 
-        self._inters = []   # 金叉死叉点
-        self._pars = []     # 分型点
+        self._cross_points = []   # 金叉死叉点
+        self._parting_points = []     # 分型点
 
         # boll 
         self._boll_st = []
@@ -122,10 +134,11 @@ class Contract(object):
         self._stg_in_dev = []
         self._stg_in_sep_dev = []
         self._stg_f_guppy = []
+        self._stg_cross_valid = []
 
     @property
-    def inters(self):
-        return self._inters
+    def cross_points(self):
+        return self._cross_points
 
     @property
     def close(self):
@@ -175,25 +188,32 @@ class Contract(object):
         for k1, v1 in self.__dict__.items():
             if not isinstance(v1, list):
                 continue
-            if k1 in ['_inters', '_pars']:
+            if k1.endswith('points'):
                 continue
             for k2, v2 in self.__dict__.items():
                 if not isinstance(v2, list) or k1 == k2:
                     continue
-                if k2 in ['_inters', '_pars']:
+                if k2.endswith('points'):
                     continue
                 if len(v1) != len(v2):
                     raise ValueError('inconsistent data length')
 
     def trim(self):
-        for k, v in self.__dict__.items():
-            if not isinstance(v, list) or len(v) == 0:
+        tmp_d = {}
+        for k,v in self.__dict__.items():
+            tmp_d[k] = v
+
+        for k,v in tmp_d.items():
+            if not isinstance(v, list):
                 continue
-            if k in ['_inters', '_cur_t_data', '_pars']:
+            if k in ['_cross_points', '_parting_points']:
                 continue
-            if exclude_stg and k.startswith('_stg'):
-                continue
-            v = v[-_RESERVE_DAYS:]
+            self.__dict__[k] = v[-_RESERVE_DAYS:]
+
+    def print_var(self):
+        print("close:", len(self._close))
+        print("high:", len(self._high))
+        print("_stg_f_boll:", len(self._stg_f_boll))
 
     # 存储Redis
     def clct_all_var(self, exclude_stg=True):
@@ -201,7 +221,7 @@ class Contract(object):
         for k, v in self.__dict__.items():
             if not isinstance(v, list) or len(v) == 0:
                 continue
-            if k in ['_inters', '_pars']:
+            if k in ['_cross_points', '_cur_t_data', '_parting_points']:
                 continue
             if exclude_stg and k.startswith('_stg'):
                 continue
@@ -214,7 +234,7 @@ class Contract(object):
         for k, v in self.__dict__.items():
             if not isinstance(v, list) or len(v) == 0:
                 continue
-            if k in ['_inters', '_cur_t_data', '_pars', 
+            if k in ['_cross_points', '_cur_t_data', '_parting_points', 
                      '_tr', '_hd', '_ld', '_dmp', '_dmm', '_pdi', '_mdi', '_adx', 
                      '_hh', '_ll', 
                      #'_ema12', '_ema26'
@@ -230,18 +250,18 @@ class Contract(object):
         '''
         traverse to get lastest parting points
         '''
-        last_pars = []
-        for idx in range(1, len(self._pars)):
-            if self._pars[-idx].end_time > inter_time:
-                if self._pars[-idx].event_name == event_name:
-                    last_pars.insert(0, self._pars[-idx])
+        last_parting_points = []
+        for idx in range(1, len(self._parting_points)):
+            if self._parting_points[-idx].end_time > inter_time:
+                if self._parting_points[-idx].event_name == event_name:
+                    last_parting_points.insert(0, self._parting_points[-idx])
             else:
                 break
         if DEBUG:
-            print("last pars:", self._pars[-1].print())
+            print("last pars:", self._parting_points[-1].print())
             print("inter_time:", inter_time, event_name)
-            print("res:", len(last_pars))
-        return last_pars
+            print("res:", len(last_parting_points))
+        return last_parting_points
 
 class Option(Contract):
     def __init__(self, code):
@@ -313,6 +333,11 @@ class Option(Contract):
         """
         calculate boll in 3 types
         """
+
+        # gravity_line
+        cur_gl = round((self._high[-1] + self._low[-1] + self._open[-1] + 3 * self._close[-1]) / 6.0, 6)
+        self._gravity_line.append(cur_gl)
+
         if len(self._close) < N:
             N = len(self._close)
 
@@ -320,17 +345,14 @@ class Option(Contract):
         cur_boll_st = round(op_util.ma(self._close, N), 6)
         self._boll_st.append(cur_boll_st)
 
-        # ub_st
-        cur_ub_st = round(cur_boll_st + M * op_util.std(self._close, N), 6)
-        self._ub_st.append(cur_ub_st)
-
-        # lb_st
-        cur_lb_st = round(cur_boll_st - M * op_util.std(self._close, N), 6)
-        self._lb_st.append(cur_lb_st)
-
-        # gravity_line
-        cur_gl = round((self._high[-1] + self._low[-1] + self._open[-1] + 3 * self._close[-1]) / 6.0, 6)
-        self._gravity_line.append(cur_gl)
+        if len(self._close) == 1:
+            self._ub_st.append(0.0)
+            self._lb_st.append(0.0)
+        else:
+            # ub_st
+            self._ub_st.append(round(cur_boll_st + M * op_util.std(self._close, N), 6))
+            # lb_st
+            self._lb_st.append(round(cur_boll_st - M * op_util.std(self._close, N), 6))
 
         if len(self._boll_st) == 1:
             self._trend_to_rise.append(0)
@@ -495,11 +517,11 @@ class Option(Contract):
         l_1, l_2, l_3 = self._ll[-3], self._ll[-2], self._ll[-1]
         if h_2 > h_1 and h_2 > h_3 and l_2 > l_1 and l_2 > l_3:
             # 顶分型
-            self._pars.append(EventPoint('TP', self._time[-2], self._time[-1], len(self._close) - 1))
+            self._parting_points.append(PartingPoint('TP', self._time[-2], self._time[-1], len(self._close) - 1))
             f_par[0] = '1'
         elif h_2 < h_1 and h_2 < h_3 and l_2 < l_1 and l_2 < l_3:
             # 底分型
-            self._pars.append(EventPoint('BP', self._time[-2], self._time[-1], len(self._close) - 1))
+            self._parting_points.append(PartingPoint('BP', self._time[-2], self._time[-1], len(self._close) - 1))
             f_par[0] = '-1'
 
         return f_par
@@ -644,115 +666,129 @@ class Option(Contract):
         f_in_dev = ['0']*4
         # 内部隔山背离
         f_in_sep_dev = ['0']*4
+        # 金叉死叉有效性
+        f_cross_valid = ['0']
 
         if len(self._diff) == 1:
-            self._t_cross.append(0)
-            return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
+            self._cross.append(0)
+            return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
         if self._diff[-2] < self._dea[-2] and self._diff[-1] > self._dea[-1]:     # jincha
             # 1. record
-            self._inters.append(EventPoint('K', self._time[-2], self._time[-1], len(self._close) - 1))
-            self._t_cross.append(1)
+            self._cross_points.append(CrossPoint('K', self._time[-2], self._time[-1], len(self._close) - 1))
+            self._cross.append(1)
 
             # 2. 普通底背离
-            if len(self._inters) < 4 or not (self._inters[-2].event_name == 'D' and \
-                self._inters[-3].event_name == 'K' and self._inters[-4].event_name == 'D'):
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
+            if len(self._cross_points) < 4 or not (self._cross_points[-2].event_name == 'D' and \
+                self._cross_points[-3].event_name == 'K' and self._cross_points[-4].event_name == 'D'):
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
-            f_macd_dev[0:4] = self.make_judge_jincha(self._inters[-2], self._inters[-1], 
-                                                self._inters[-4], self._inters[-3])
+            f_macd_dev[0:4] = self.make_judge_jincha(self._cross_points[-2], self._cross_points[-1], 
+                                                self._cross_points[-4], self._cross_points[-3])
 
-            # 3. 隔山底背离
-            if len(self._inters) < 6 or not (self._inters[-5].event_name == 'K' and self._inters[-6].event_name == 'D'):
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
+            # 3. 金叉有效性判断
+            L1 = min(self._low[self._cross_points[-4].close_idx:self._cross_points[-3].close_idx])
+            L2 = min(self._low[self._cross_points[-2].close_idx:self._cross_points[-1].close_idx])
+            if L2 >= L1:
+                f_cross_valid[0] = '1'
 
-            f_sep_dev[0:4] = self.make_judge_jincha(self._inters[-2], self._inters[-1], 
-                                               self._inters[-6], self._inters[-5])
+            # 4. 隔山底背离
+            if len(self._cross_points) < 6 or not (self._cross_points[-5].event_name == 'K' and self._cross_points[-6].event_name == 'D'):
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+
+            f_sep_dev[0:4] = self.make_judge_jincha(self._cross_points[-2], self._cross_points[-1], 
+                                               self._cross_points[-6], self._cross_points[-5])
         elif self._diff[-2] > self._dea[-2] and self._diff[-1] < self._dea[-1]:   # sicha
             # 1. record
-            self._inters.append(EventPoint('D', self._time[-2], self._time[-1], len(self._close) - 1))
-            self._t_cross.append(-1)
+            self._cross_points.append(CrossPoint('D', self._time[-2], self._time[-1], len(self._close) - 1))
+            self._cross.append(-1)
 
             # 2. 普通顶背离
-            if len(self._inters) < 4 or not (self._inters[-2].event_name == 'K' and \
-                self._inters[-3].event_name == 'D' and self._inters[-4].event_name == 'K'):
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
+            if len(self._cross_points) < 4 or not (self._cross_points[-2].event_name == 'K' and \
+                self._cross_points[-3].event_name == 'D' and self._cross_points[-4].event_name == 'K'):
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
-            f_macd_dev[4:8] = self.make_judge_sicha(self._inters[-2], self._inters[-1], 
-                                               self._inters[-4], self._inters[-3])
+            f_macd_dev[4:8] = self.make_judge_sicha(self._cross_points[-2], self._cross_points[-1], 
+                                               self._cross_points[-4], self._cross_points[-3])
 
-            # 3. 隔山顶背离
-            if len(self._inters) < 6 or not (self._inters[-5].event_name == 'D' and self._inters[-6].event_name == 'K'):
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
+            # 3. 死叉有效性判断
+            H1 = max(self._low[self._cross_points[-4].close_idx:self._cross_points[-3].close_idx])
+            H2 = max(self._low[self._cross_points[-2].close_idx:self._cross_points[-1].close_idx])
+            if H2 <= H1:
+                f_cross_valid[0] = '-1'
 
-            f_sep_dev[4:8] = self.make_judge_sicha(self._inters[-2], self._inters[-1], 
-                                              self._inters[-6], self._inters[-5])
+            # 4. 隔山顶背离
+            if len(self._cross_points) < 6 or not (self._cross_points[-5].event_name == 'D' and self._cross_points[-6].event_name == 'K'):
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+
+            f_sep_dev[4:8] = self.make_judge_sicha(self._cross_points[-2], self._cross_points[-1], 
+                                              self._cross_points[-6], self._cross_points[-5])
         else:
-            self._t_cross.append(0)
+            self._cross.append(0)
 
         # 内部背离
-        if len(self._inters) > 0 and self._inters[-1].event_name == 'D':     # sc
-            par_points = self.get_last_par_points(self._inters[-1].end_time, 'BP')
+        if len(self._cross_points) > 0 and self._cross_points[-1].event_name == 'D':     # sc
+            par_points = self.get_last_par_points(self._cross_points[-1].end_time, 'BP')
 
             # 当前非分型点
             if len(par_points) > 0 and par_points[-1].end_time != self.t_data.time:
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
             # 内部普通底背离
             if len(par_points) == 2:
-                l1_from, l1_to = self._inters[-1].close_idx, par_points[-2].close_idx
+                l1_from, l1_to = self._cross_points[-1].close_idx, par_points[-2].close_idx
                 l2_from, l2_to = par_points[-2].close_idx, par_points[-1].close_idx
             elif len(par_points) > 2:
                 l1_from, l1_to = par_points[-3].close_idx, par_points[-2].close_idx
                 l2_from, l2_to = par_points[-2].close_idx, par_points[-1].close_idx
             elif len(par_points) < 2:
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
             f_in_dev[0:2] = self.in_bottom_dev(l1_from, l1_to, l2_from, l2_to)
 
             # 内部隔山底背离
             if len(par_points) == 3:
-                l1_in_from, l1_in_to = self._inters[-1].close_idx, par_points[-3].close_idx
+                l1_in_from, l1_in_to = self._cross_points[-1].close_idx, par_points[-3].close_idx
                 l2_in_from, l2_in_to = par_points[-2].close_idx, par_points[-1].close_idx
             elif len(par_points) > 3:
                 l1_in_from, l1_in_to = par_points[-4].close_idx, par_points[-3].close_idx
                 l2_in_from, l2_in_to = par_points[-2].close_idx, par_points[-1].close_idx
             elif len(par_points) < 3:
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
             f_in_sep_dev[0:2] = self.in_bottom_dev(l1_in_from, l1_in_to, l2_in_from, l2_in_to)
-        elif len(self._inters) > 0 and self._inters[-1].event_name == 'K':   # jc
-            par_points = self.get_last_par_points(self._inters[-1].end_time, 'TP')
+        elif len(self._cross_points) > 0 and self._cross_points[-1].event_name == 'K':   # jc
+            par_points = self.get_last_par_points(self._cross_points[-1].end_time, 'TP')
 
             # 当前非分型点
             if len(par_points) > 0 and par_points[-1].end_time != self.t_data.time:
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
             # 内部普通顶背离
             if len(par_points) == 2:
-                h1_from, h1_to = self._inters[-1].close_idx, par_points[-2].close_idx
+                h1_from, h1_to = self._cross_points[-1].close_idx, par_points[-2].close_idx
                 h2_from, h2_to = par_points[-2].close_idx, par_points[-1].close_idx
             elif len(par_points) > 2:
                 h1_from, h1_to = par_points[-3].close_idx, par_points[-2].close_idx
                 h2_from, h2_to = par_points[-2].close_idx, par_points[-1].close_idx
             elif len(par_points) < 2:
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
             f_in_dev[2:4] = self.in_top_dev(h1_from, h1_to, h2_from, h2_to)
 
             # 内部隔山顶背离
             if len(par_points) == 3:
-                h1_in_from, h1_in_to = self._inters[-1].close_idx, par_points[-3].close_idx
+                h1_in_from, h1_in_to = self._cross_points[-1].close_idx, par_points[-3].close_idx
                 h2_in_from, h2_in_to = par_points[-2].close_idx, par_points[-1].close_idx
             elif len(par_points) > 3:
                 h1_in_from, h1_in_to = par_points[-4].close_idx, par_points[-3].close_idx
                 h2_in_from, h2_in_to = par_points[-2].close_idx, par_points[-1].close_idx
             elif len(par_points) < 3:
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
+                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
             f_in_sep_dev[2:4] = self.in_top_dev(h1_in_from, h1_in_to, h2_in_from, h2_in_to)
 
-        return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev
+        return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
     def iterate(self, data):
         assert isinstance(data, dict)
@@ -796,18 +832,18 @@ class Option(Contract):
         self._stg_f_dmi.append(''.join(f_dmi))
         
         # dev
-        f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev = self.check_dev()
+        f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid = self.check_dev()
         self._stg_macd_dev.append(''.join(f_macd_dev))
         self._stg_sep_dev.append(''.join(f_sep_dev))
         self._stg_in_dev.append(''.join(f_in_dev))
         self._stg_in_sep_dev.append(''.join(f_in_sep_dev))
+        self._stg_cross_valid.append(''.join(f_cross_valid))
 
         # guppy
         f_guppy = self.check_guppy()
         self._stg_f_guppy.append(''.join(f_guppy))
 
 if __name__ == '__main__':
-
     # read input file
     if len(sys.argv[1]) < 2:
         print('Usage: python {} path'.format(sys.argv[0]))
@@ -817,10 +853,13 @@ if __name__ == '__main__':
     if not os.path.exists(out_path):
         os.mkdir(out_path)
 
-
     ct_agent = {}
 
-    files = sorted(fu.get_files(sys.argv[1], '_6_5'))
+    files = sorted(fu.get_files(sys.argv[1], sys.argv[2]))
+
+    res = []
+    row_head = []
+    line_idx = 0
     for file_path in files:
         t_data = []
         with open(file_path, 'r') as f:
@@ -828,9 +867,6 @@ if __name__ == '__main__':
                 line = line.strip()
                 t_data.append(line)
 
-        res = []
-        row_head = []
-        line_idx = 0
         for line in t_data:
             items = line.split(',')
             d_data = edict(m_code = int(items[0]), 
@@ -856,6 +892,9 @@ if __name__ == '__main__':
             cc.iterate(d_data)
             cc.make_judge()
             cc.check_data_valid()
+
+            #cc.trim()
+            #cc.print_var()
 
             # base index
             res_str = cc.clct_for_validate()
@@ -904,24 +943,25 @@ if __name__ == '__main__':
             res.append(val)
             line_idx += 1
 
-        res_arr = np.array(res)
+    res_arr = np.array(res)
 
-        file_name = file_path.split('/')[-1]
-        print(file_path, file_name)
+    #file_name = file_path.split('/')[-1]
+    file_name = 'LH2207_d_1'
+    print(file_name)
 
-        tips = '指标说明：\n \
-        1、顾比策略: \n \
-            位置1: boll_st_s1对比boll_st_s5（-1: 小于, 1:大于等于）\n \
-            位置2: boll_st_s1是否穿过boll_st_s5（0: 未交叉, 1: s1上穿s5, -1: s1下穿s5）\n \
-        2、背离: \n \
-            位置1~4: 分别表示是否MACD底背离、DIFF底背离、MACD柱背离、MACD柱面积底背离（1: 是, 0:否） \n \
-            位置5~8: 分别表示是否MACD顶背离、DIFF顶背离、MACD顶背离、MACD柱面积顶背离（1: 是, 0:否） \n \
-        3、分型: \n \
-            位置1: 是否有顶分型or底分型（1: 是, 0:否） \n \
-            位置2: 是否顶分型（1: 是, 0:否） \n \
-            位置3: 是否底分型（1: 是, 0:否） \n \
-        4、ADX极值: \n \
-            位置1: adx是否上下穿过60&-60（0: 非极值点, 1: 上穿-60.0, -1: 下穿60）\
-        '
-        fu.save_xlsx(os.path.join(out_path, file_name + '.xlsx'), res_arr.T.tolist(), tips=tips)
+    tips = '指标说明：\n \
+    1、顾比策略: \n \
+        位置1: boll_st_s1对比boll_st_s5（-1: 小于, 1:大于等于）\n \
+        位置2: boll_st_s1是否穿过boll_st_s5（0: 未交叉, 1: s1上穿s5, -1: s1下穿s5）\n \
+    2、背离: \n \
+        位置1~4: 分别表示是否MACD底背离、DIFF底背离、MACD柱背离、MACD柱面积底背离（1: 是, 0:否） \n \
+        位置5~8: 分别表示是否MACD顶背离、DIFF顶背离、MACD顶背离、MACD柱面积顶背离（1: 是, 0:否） \n \
+    3、分型: \n \
+        位置1: 是否有顶分型or底分型（1: 是, 0:否） \n \
+        位置2: 是否顶分型（1: 是, 0:否） \n \
+        位置3: 是否底分型（1: 是, 0:否） \n \
+    4、ADX极值: \n \
+        位置1: adx是否上下穿过60&-60（0: 非极值点, 1: 上穿-60.0, -1: 下穿60）\
+    '
+    fu.save_xlsx(os.path.join(out_path, file_name + '.xlsx'), res_arr.T.tolist(), tips=tips)
 
