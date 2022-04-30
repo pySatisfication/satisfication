@@ -126,14 +126,14 @@ class Contract(object):
         self._hh = []
         self._ll = []
 
-        self._stg_f_boll = []
-        self._stg_f_par = []
-        self._stg_f_dmi = []
-        self._stg_macd_dev = []
+        self._stg_boll = []
+        self._stg_par = []
+        self._stg_dmi = []
+        self._stg_dev = []
         self._stg_sep_dev = []
         self._stg_in_dev = []
         self._stg_in_sep_dev = []
-        self._stg_f_guppy = []
+        self._stg_guppy = []
         self._stg_cross_valid = []
 
     @property
@@ -213,7 +213,7 @@ class Contract(object):
     def print_var(self):
         print("close:", len(self._close))
         print("high:", len(self._high))
-        print("_stg_f_boll:", len(self._stg_f_boll))
+        print("_stg_boll:", len(self._stg_boll))
 
     # 存储Redis
     def clct_all_var(self, exclude_stg=True):
@@ -240,7 +240,7 @@ class Contract(object):
                      #'_ema12', '_ema26'
                      ]:
                 continue
-            if k == '_stg_f_dmi':
+            if k == '_stg_dmi':
                 m_var[k] = v[-1][-1:]
             else:
                 m_var[k] = v[-1]
@@ -659,7 +659,7 @@ class Option(Contract):
             index 4~7       # top divergence
         """
         # 普通背离
-        f_macd_dev = ['0']*8
+        f_dev = ['0']*8
         # 普通隔山背离
         f_sep_dev = ['0']*8
         # 内部背离
@@ -671,7 +671,7 @@ class Option(Contract):
 
         if len(self._diff) == 1:
             self._cross.append(0)
-            return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+            return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
         if self._diff[-2] < self._dea[-2] and self._diff[-1] > self._dea[-1]:     # jincha
             # 1. record
@@ -681,20 +681,22 @@ class Option(Contract):
             # 2. 普通底背离
             if len(self._cross_points) < 4 or not (self._cross_points[-2].event_name == 'D' and \
                 self._cross_points[-3].event_name == 'K' and self._cross_points[-4].event_name == 'D'):
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
-            f_macd_dev[0:4] = self.make_judge_jincha(self._cross_points[-2], self._cross_points[-1], 
+            f_dev[0:4] = self.make_judge_jincha(self._cross_points[-2], self._cross_points[-1], 
                                                 self._cross_points[-4], self._cross_points[-3])
 
             # 3. 金叉有效性判断
+            stg_t_dev_1 = self._stg_dev[self._cross_points[-4].close_idx][4:] #t_i-3
+            stg_t_dev_2 = self._stg_dev[self._cross_points[-2].close_idx][4:] #t_i-1
             L1 = min(self._low[self._cross_points[-4].close_idx:self._cross_points[-3].close_idx])
             L2 = min(self._low[self._cross_points[-2].close_idx:self._cross_points[-1].close_idx])
-            if L2 >= L1:
+            if stg_t_dev_1 == stg_t_dev_2 and stg_t_dev_1 == '0000' and L2 >= L1:
                 f_cross_valid[0] = '1'
 
             # 4. 隔山底背离
             if len(self._cross_points) < 6 or not (self._cross_points[-5].event_name == 'K' and self._cross_points[-6].event_name == 'D'):
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
             f_sep_dev[0:4] = self.make_judge_jincha(self._cross_points[-2], self._cross_points[-1], 
                                                self._cross_points[-6], self._cross_points[-5])
@@ -706,20 +708,22 @@ class Option(Contract):
             # 2. 普通顶背离
             if len(self._cross_points) < 4 or not (self._cross_points[-2].event_name == 'K' and \
                 self._cross_points[-3].event_name == 'D' and self._cross_points[-4].event_name == 'K'):
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
-            f_macd_dev[4:8] = self.make_judge_sicha(self._cross_points[-2], self._cross_points[-1], 
+            f_dev[4:8] = self.make_judge_sicha(self._cross_points[-2], self._cross_points[-1], 
                                                self._cross_points[-4], self._cross_points[-3])
 
             # 3. 死叉有效性判断
+            stg_b_dev_1 = self._stg_dev[self._cross_points[-4].close_idx][0:4] #t_i-3
+            stg_b_dev_2 = self._stg_dev[self._cross_points[-2].close_idx][0:4] #t_i-1
             H1 = max(self._low[self._cross_points[-4].close_idx:self._cross_points[-3].close_idx])
             H2 = max(self._low[self._cross_points[-2].close_idx:self._cross_points[-1].close_idx])
-            if H2 <= H1:
+            if stg_b_dev_1 == stg_b_dev_2 and stg_b_dev_1 == '0000' and H2 <= H1:
                 f_cross_valid[0] = '-1'
 
             # 4. 隔山顶背离
             if len(self._cross_points) < 6 or not (self._cross_points[-5].event_name == 'D' and self._cross_points[-6].event_name == 'K'):
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
             f_sep_dev[4:8] = self.make_judge_sicha(self._cross_points[-2], self._cross_points[-1], 
                                               self._cross_points[-6], self._cross_points[-5])
@@ -732,7 +736,7 @@ class Option(Contract):
 
             # 当前非分型点
             if len(par_points) > 0 and par_points[-1].end_time != self.t_data.time:
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
             # 内部普通底背离
             if len(par_points) == 2:
@@ -742,7 +746,7 @@ class Option(Contract):
                 l1_from, l1_to = par_points[-3].close_idx, par_points[-2].close_idx
                 l2_from, l2_to = par_points[-2].close_idx, par_points[-1].close_idx
             elif len(par_points) < 2:
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
             f_in_dev[0:2] = self.in_bottom_dev(l1_from, l1_to, l2_from, l2_to)
 
@@ -754,7 +758,7 @@ class Option(Contract):
                 l1_in_from, l1_in_to = par_points[-4].close_idx, par_points[-3].close_idx
                 l2_in_from, l2_in_to = par_points[-2].close_idx, par_points[-1].close_idx
             elif len(par_points) < 3:
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
             f_in_sep_dev[0:2] = self.in_bottom_dev(l1_in_from, l1_in_to, l2_in_from, l2_in_to)
         elif len(self._cross_points) > 0 and self._cross_points[-1].event_name == 'K':   # jc
@@ -762,7 +766,7 @@ class Option(Contract):
 
             # 当前非分型点
             if len(par_points) > 0 and par_points[-1].end_time != self.t_data.time:
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
             # 内部普通顶背离
             if len(par_points) == 2:
@@ -772,7 +776,7 @@ class Option(Contract):
                 h1_from, h1_to = par_points[-3].close_idx, par_points[-2].close_idx
                 h2_from, h2_to = par_points[-2].close_idx, par_points[-1].close_idx
             elif len(par_points) < 2:
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
             f_in_dev[2:4] = self.in_top_dev(h1_from, h1_to, h2_from, h2_to)
 
@@ -784,11 +788,11 @@ class Option(Contract):
                 h1_in_from, h1_in_to = par_points[-4].close_idx, par_points[-3].close_idx
                 h2_in_from, h2_in_to = par_points[-2].close_idx, par_points[-1].close_idx
             elif len(par_points) < 3:
-                return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
             f_in_sep_dev[2:4] = self.in_top_dev(h1_in_from, h1_in_to, h2_in_from, h2_in_to)
 
-        return f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+        return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
 
     def iterate(self, data):
         assert isinstance(data, dict)
@@ -821,19 +825,19 @@ class Option(Contract):
     def make_judge(self):
         # boll
         f_boll = self.check_boll()
-        self._stg_f_boll.append(''.join(f_boll))
+        self._stg_boll.append(''.join(f_boll))
 
         # parting
         f_par = self.check_parting()
-        self._stg_f_par.append(''.join(f_par))
+        self._stg_par.append(''.join(f_par))
 
         # dmi
         f_dmi = self.check_dmi()
-        self._stg_f_dmi.append(''.join(f_dmi))
+        self._stg_dmi.append(''.join(f_dmi))
         
         # dev
-        f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid = self.check_dev()
-        self._stg_macd_dev.append(''.join(f_macd_dev))
+        f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid = self.check_dev()
+        self._stg_dev.append(''.join(f_dev))
         self._stg_sep_dev.append(''.join(f_sep_dev))
         self._stg_in_dev.append(''.join(f_in_dev))
         self._stg_in_sep_dev.append(''.join(f_in_sep_dev))
@@ -841,7 +845,7 @@ class Option(Contract):
 
         # guppy
         f_guppy = self.check_guppy()
-        self._stg_f_guppy.append(''.join(f_guppy))
+        self._stg_guppy.append(''.join(f_guppy))
 
 if __name__ == '__main__':
     # read input file
@@ -921,19 +925,19 @@ if __name__ == '__main__':
                         row_head.append('_of_f_ub_st(溢出上轨)')
                     elif k == '_of_f_lb_st':
                         row_head.append('_of_f_lb_st(溢出下轨)')
-                    elif k == '_stg_f_par':
-                        row_head.append('_stg_f_par(分型)')
-                    elif k == '_stg_macd_dev':
-                        row_head.append('_stg_macd_dev(普通背离)')
+                    elif k == '_stg_par':
+                        row_head.append('_stg_par(分型)')
+                    elif k == '_stg_dev':
+                        row_head.append('_stg_dev(普通背离)')
                     elif k == '_stg_sep_dev':
                         row_head.append('_stg_sep_dev(隔山背离)')
-                    elif k == '_stg_f_guppy':
-                        row_head.append('_stg_f_guppy(顾比策略)')
+                    elif k == '_stg_guppy':
+                        row_head.append('_stg_guppy(顾比策略)')
                     elif k == '_stg_in_dev':
                         row_head.append('_stg_in_dev(内部背离)')
                     elif k == '_stg_in_sep_dev':
                         row_head.append('_stg_in_sep_dev(内部隔山背离)')
-                    elif k == '_stg_f_dmi':
+                    elif k == '_stg_dmi':
                         row_head.append('_stg_f_adx_ex')
                     else:
                         row_head.append(k)
