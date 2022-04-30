@@ -948,20 +948,5 @@ if __name__ == '__main__':
     #file_name = file_path.split('/')[-1]
     file_name = 'LH2207_d_1'
     print(file_name)
-
-    tips = '指标说明：\n \
-    1、顾比策略: \n \
-        位置1: boll_st_s1对比boll_st_s5（-1: 小于, 1:大于等于）\n \
-        位置2: boll_st_s1是否穿过boll_st_s5（0: 未交叉, 1: s1上穿s5, -1: s1下穿s5）\n \
-    2、背离: \n \
-        位置1~4: 分别表示是否MACD底背离、DIFF底背离、MACD柱背离、MACD柱面积底背离（1: 是, 0:否） \n \
-        位置5~8: 分别表示是否MACD顶背离、DIFF顶背离、MACD顶背离、MACD柱面积顶背离（1: 是, 0:否） \n \
-    3、分型: \n \
-        位置1: 是否有顶分型or底分型（1: 是, 0:否） \n \
-        位置2: 是否顶分型（1: 是, 0:否） \n \
-        位置3: 是否底分型（1: 是, 0:否） \n \
-    4、ADX极值: \n \
-        位置1: adx是否上下穿过60&-60（0: 非极值点, 1: 上穿-60.0, -1: 下穿60）\
-    '
-    fu.save_xlsx(os.path.join(out_path, file_name + '.xlsx'), res_arr.T.tolist(), tips=tips)
+    fu.save_xlsx(os.path.join(out_path, file_name + '.xlsx'), res_arr.T.tolist(), tips=None)
 
