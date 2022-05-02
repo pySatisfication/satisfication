@@ -626,10 +626,10 @@ class Option(Contract):
         L1 = min(self._low[l1_from:l1_to])
         L2 = min(self._low[l2_from:l2_to])
 
-        D1 = self._diff[l1_from:l1_to][np.array(self._diff[l1_from:l1_to]).argmin()]
-        D2 = self._diff[l2_from:l2_to][np.array(self._diff[l2_from:l2_to]).argmin()]
-        M1 = self._macd[l1_from:l1_to][np.array(self._macd[l1_from:l1_to]).argmin()]
-        M2 = self._macd[l2_from:l2_to][np.array(self._macd[l2_from:l2_to]).argmin()]
+        D1 = self._diff[l1_from:l1_to][np.array(self._low[l1_from:l1_to]).argmin()]
+        D2 = self._diff[l2_from:l2_to][np.array(self._low[l2_from:l2_to]).argmin()]
+        M1 = self._macd[l1_from:l1_to][np.array(self._low[l1_from:l1_to]).argmin()]
+        M2 = self._macd[l2_from:l2_to][np.array(self._low[l2_from:l2_to]).argmin()]
         if (L2 <= L1 and D2 > D1) or (L2 < L1 and D2 >= D1):
             f_in_dev[0] = '1'   # 快线内部底背驰
         if (L2 <= L1 and M2 > M1) or (L2 < L1 and M2 >= M1):
@@ -641,10 +641,10 @@ class Option(Contract):
         H1 = max(self._high[h1_from:h1_to])
         H2 = max(self._high[h2_from:h2_to])
 
-        D1 = self._diff[h1_from:h1_to][np.array(self._diff[h1_from:h1_to]).argmax()]
-        D2 = self._diff[h2_from:h2_to][np.array(self._diff[h2_from:h2_to]).argmax()]
-        M1 = self._macd[h1_from:h1_to][np.array(self._macd[h1_from:h1_to]).argmax()]
-        M2 = self._macd[h2_from:h2_to][np.array(self._macd[h2_from:h2_to]).argmax()]
+        D1 = self._diff[h1_from:h1_to][np.array(self._high[h1_from:h1_to]).argmax()]
+        D2 = self._diff[h2_from:h2_to][np.array(self._high[h2_from:h2_to]).argmax()]
+        M1 = self._macd[h1_from:h1_to][np.array(self._high[h1_from:h1_to]).argmax()]
+        M2 = self._macd[h2_from:h2_to][np.array(self._high[h2_from:h2_to]).argmax()]
         if (H2 >= H1 and D2 < D1) or (H2 > H1 and D2 <= D1):
             f_in_dev[0] = '1'   # 快线内部顶背驰
         if (H2 >= H1 and M2 < M1) or (H2 > H1 and M2 <= M1):
