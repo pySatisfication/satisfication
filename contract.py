@@ -938,7 +938,7 @@ if __name__ == '__main__':
                     elif k == '_stg_in_sep_dev':
                         row_head.append('_stg_in_sep_dev(内部隔山背离)')
                     elif k == '_stg_dmi':
-                        row_head.append('_stg_f_adx_ex')
+                        row_head.append('_stg_adx_ex')
                     else:
                         row_head.append(k)
                 val.append(v)
