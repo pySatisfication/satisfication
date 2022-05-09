@@ -161,6 +161,14 @@ class Contract(object):
         return self._sma
 
     @property
+    def hh(self):
+        return self._hh
+
+    @property
+    def ll(self):
+        return self._ll
+
+    @property
     def t_to_rise(self):
         return self._trend_to_rise
 
@@ -235,8 +243,9 @@ class Contract(object):
             if not isinstance(v, list) or len(v) == 0:
                 continue
             if k in ['_cross_points', '_cur_t_data', '_parting_points', 
-                     '_tr', '_hd', '_ld', '_dmp', '_dmm', '_pdi', '_mdi', '_adx', 
-                     '_hh', '_ll', 
+                     '_tr', '_hd', '_ld', '_dmp', '_dmm', '_pdi', '_mdi', 
+                     #'_adx', 
+                     #'_hh', '_ll', 
                      #'_ema12', '_ema26'
                      ]:
                 continue
@@ -389,45 +398,40 @@ class Option(Contract):
         self._boll_st_s5.append(round(op_util.ma(self._boll_st_s4, N), 6))
 
     def update_parting(self):
-        if len(self._close) <= 2:
+        if len(self._close) < 2:
             self._hh.append(self._high[-1])
             self._ll.append(self._low[-1])
             return
 
-        h_1, h_2, h_3 = self._hh[-2], self._hh[-1], self._high[-1]
-        l_1, l_2, l_3 = self._ll[-2], self._ll[-1], self._low[-1]
+        h_2, h_3 = self._hh[-1], self._high[-1]
+        l_2, l_3 = self._ll[-1], self._low[-1]
         if (h_2 < h_3 or l_2 > l_3) and (h_2 > h_3 or l_2 < l_3):
-           # case 0
-           self._hh.append(h_3)
-           self._ll.append(l_3)
-        elif (h_2 >= h_3 and l_2 <= l_3) or (h_2 <= h_3 and l_2 >= l_3):
-            if (h_2 > h_1 and l_2 >= l_1) or (h_2 >= h_1 and l_2 > l_1):
-                # case 1, upward
-                self._hh.append(max(h_2, h_3))
-                self._ll.append(max(l_2, l_3))
-            elif (h_2 < h_1 and l_2 <= l_1) or (h_2 <= h_1 and l_2 < l_1):
-                # case 2, downward
+            # case 0
+            if DEBUG:
+                print('case 0', self._time[-1])
+            self._hh.append(h_3)
+            self._ll.append(l_3)
+        else:
+            self._hh[-1] = -1.0
+            self._ll[-1] = -1.0
+            if (h_2 > h_3 and l_2 <= l_3) or (h_2 >= h_3 and l_2 < l_3):
+                # case 1, downward
+                if DEBUG:
+                    print('case 1', self._time[-1])
                 self._hh.append(min(h_2, h_3))
                 self._ll.append(min(l_2, l_3))
+            elif (h_2 < h_3 and l_2 >= l_3) or (h_2 <= h_3 and l_2 > l_3):
+                # case 2, upward
+                if DEBUG:
+                    print('case 2', self._time[-1])
+                self._hh.append(max(h_2, h_3))
+                self._ll.append(max(l_2, l_3))
             else:
                 # special judgement
-                n = 3
-                t_hh3 = h_3
-                t_ll3 = l_3
-                while n <= len(self._hh):
-                    if (h_2 > self._hh[-n] and l_2 >= self._ll[-n]) or \
-                       (h_2 >= self._hh[-n] and l_2 > self._ll[-n]):
-                        t_hh3 = max(h_2, h_3)
-                        t_ll3 = max(l_2, l_3)
-                        break
-                    elif (h_2 < self._hh[-n] and l_2 <= self._ll[-n]) or \
-                         (h_2 <= self._hh[-n] and l_2 < self._ll[-n]):
-                        t_hh3 = min(h_2, h_3)
-                        t_ll3 = min(l_2, l_3)
-                        break
-                    n += 1
-                self._hh.append(t_hh3)
-                self._ll.append(t_ll3)
+                if DEBUG:
+                    print('case 3', self._time[-1])
+                self._hh.append(h_3)
+                self._ll.append(l_3)
 
     def update_dmi(self):
         """
@@ -513,7 +517,13 @@ class Option(Contract):
         if len(self._close) <= 2:
             return f_par
 
-        h_1, h_2, h_3 = self._hh[-3], self._hh[-2], self._hh[-1]
+        idx_gt_0 = np.where(np.array(self._hh)>0)[0]
+        if len(idx_gt_0) < 3:
+            return f_par
+
+        idx_1, idx_2, idx_3 = idx_gt_0[-3:]
+        h_1, h_2, h_3 = self._hh[idx_1], self._hh[idx_2], self._hh[idx_3]
+        l_1, l_2, l_3 = self._ll[idx_1], self._ll[idx_2], self._ll[idx_3]
         l_1, l_2, l_3 = self._ll[-3], self._ll[-2], self._ll[-1]
         if h_2 > h_1 and h_2 > h_3 and l_2 > l_1 and l_2 > l_3:
             # 顶分型
@@ -853,6 +863,37 @@ if __name__ == '__main__':
         print('Usage: python {} path'.format(sys.argv[0]))
         exit(0)
 
+    # 文华
+    wenhua_time = []
+    wenhua_open = []
+    wenhua_high = []
+    wenhua_low = []
+    wenhua_close = []
+    with open('data/wenhua.txt', 'r') as f:
+        for line in f.readlines():
+            line = line.strip()
+            if line.startswith('time'):
+                wenhua_time = line.split('\t')[1:]
+            elif line.startswith('open'):
+                wenhua_open = line.split('\t')[1:]
+            elif line.startswith('high'):
+                wenhua_high = line.split('\t')[1:]
+            elif line.startswith('low'):
+                wenhua_low = line.split('\t')[1:]
+            elif line.startswith('close'):
+                wenhua_close = line.split('\t')[1:]
+            else:
+                continue
+    m_wenhua = {}
+    for i, time in enumerate(wenhua_time):
+        m_wenhua[time + 'open'] = wenhua_open[i]
+    for i, time in enumerate(wenhua_time):
+        m_wenhua[time + 'high'] = wenhua_high[i]
+    for i, time in enumerate(wenhua_time):
+        m_wenhua[time + 'low'] = wenhua_low[i]
+    for i, time in enumerate(wenhua_time):
+        m_wenhua[time + 'close'] = wenhua_close[i]
+
     out_path = 'data/validate'
     if not os.path.exists(out_path):
         os.mkdir(out_path)
@@ -876,14 +917,21 @@ if __name__ == '__main__':
             d_data = edict(m_code = int(items[0]), 
                            c_code = items[1],
                            time = items[2],
-                           open = float(items[3]),
-                           high = float(items[4]),
-                           low = float(items[5]),
-                           close = float(items[6]), volumes = float(items[7]),
+                           #open = float(items[3]),
+                           #high = float(items[4]),
+                           #low = float(items[5]),
+                           #close = float(items[6]), 
+                           open = float(m_wenhua[items[2]+'open']),
+                           high = float(m_wenhua[items[2]+'high']),
+                           low = float(m_wenhua[items[2]+'low']),
+                           close = float(m_wenhua[items[2]+'close']),
+                           volumes = float(items[7]),
                            holds = float(items[8]),
                            amounts = float(items[9]),
                            avg_prices = float(items[10])
                         )
+
+            # replace
 
             c_code = items[1]
             if c_code in ct_agent:
@@ -891,7 +939,7 @@ if __name__ == '__main__':
             else:
                 cc = Option(c_code)
                 ct_agent[c_code] = cc
-            t_data = []
+            #t_data = []
 
             cc.iterate(d_data)
             cc.make_judge()
@@ -948,9 +996,14 @@ if __name__ == '__main__':
             line_idx += 1
 
     res_arr = np.array(res)
+    res_arr_t = res_arr.T
+    res_arr_t[29][1:] = ct_agent['LH2207'].hh
+    res_arr_t[30][1:] = ct_agent['LH2207'].ll
+    print(res_arr_t[29])
+    print(res_arr_t[30])
 
     #file_name = file_path.split('/')[-1]
     file_name = 'LH2207_d_1'
     print(file_name)
-    fu.save_xlsx(os.path.join(out_path, file_name + '.xlsx'), res_arr.T.tolist(), tips=None)
+    fu.save_xlsx(os.path.join(out_path, file_name + '.xlsx'), res_arr_t.tolist(), tips=None)
 
