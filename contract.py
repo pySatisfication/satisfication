@@ -83,6 +83,9 @@ class Contract(object):
         self._ema26 = []
         #self._sma = []
 
+        self._llv = []
+        self._hhv = []
+
         # std
         #self._std = []
 
@@ -308,6 +311,15 @@ class Option(Contract):
         self._holds.append(self.t_data.holds)
         self._amounts.append(self.t_data.amounts)
         self._avg_prices.append(self.t_data.avg_prices)
+
+    def update_sp_line(self, N=20):
+        if len(self._low) == 1:
+            self._llv.append(self._low[-1])
+            self._hhv.append(self._high[-1])
+            return
+            
+        self._llv.append(min(self._low[-N:]))
+        self._hhv.append(max(self._high[-N:]))
 
     def update_ema(self):
         """
@@ -701,7 +713,7 @@ class Option(Contract):
             stg_t_dev_2 = self._stg_dev[self._cross_points[-2].close_idx][4:] #t_i-1
             L1 = min(self._low[self._cross_points[-4].close_idx:self._cross_points[-3].close_idx])
             L2 = min(self._low[self._cross_points[-2].close_idx:self._cross_points[-1].close_idx])
-            if stg_t_dev_1 == stg_t_dev_2 and stg_t_dev_1 == '0000' and L2 >= L1:
+            if stg_t_dev_1 == stg_t_dev_2 and stg_t_dev_1 == '0000' and L2 >= L1 and self._diff[-1] >= 0.0:
                 f_cross_valid[0] = '1'
 
             # 4. 隔山底背离
@@ -724,11 +736,11 @@ class Option(Contract):
                                                self._cross_points[-4], self._cross_points[-3])
 
             # 3. 死叉有效性判断
-            stg_b_dev_1 = self._stg_dev[self._cross_points[-4].close_idx][0:4] #t_i-3
-            stg_b_dev_2 = self._stg_dev[self._cross_points[-2].close_idx][0:4] #t_i-1
+            stg_b_dev_1 = self._stg_dev[self._cross_points[-4].close_idx][0:4] #t_{i-3}
+            stg_b_dev_2 = self._stg_dev[self._cross_points[-2].close_idx][0:4] #t_{i-1}
             H1 = max(self._low[self._cross_points[-4].close_idx:self._cross_points[-3].close_idx])
             H2 = max(self._low[self._cross_points[-2].close_idx:self._cross_points[-1].close_idx])
-            if stg_b_dev_1 == stg_b_dev_2 and stg_b_dev_1 == '0000' and H2 <= H1:
+            if stg_b_dev_1 == stg_b_dev_2 and stg_b_dev_1 == '0000' and H2 <= H1 and self._diff[-1] <= 0.0:
                 f_cross_valid[0] = '-1'
 
             # 4. 隔山顶背离
@@ -818,6 +830,7 @@ class Option(Contract):
         """
         self.update_ct_data()
 
+        self.update_sp_line()
         self.update_ema()
         self.update_boll()
         self.update_guppyline()
