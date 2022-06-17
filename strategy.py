@@ -12,7 +12,7 @@ class ContractFactory(object):
 
     @classmethod
     def c_creator(cls, m_code):
-        if m_code.startswith('IC'):
+        if m_code.startswith('LH'):
             return ct.Option(m_code)
         else:
             pass
@@ -41,28 +41,36 @@ class SimpleStrategy(BaseStrategy):
         self._ct_lock.acquire()
         data = args[0]
         c_code = data.c_code
+        period = data.period
 
         #self.log.info(u"consume item: %s", item.time)
         if c_code in self._ct_data:
-            item = self._ct_data[c_code]
+            if period in self._ct_data[c_code]:
+                item = self._ct_data[c_code][period]
+            else:
+                item = ContractFactory.c_creator(c_code)
+                self._ct_data[c_code][period] = item
         else:
             item = ContractFactory.c_creator(c_code)
-            self._ct_data[c_code] = item
+            self._ct_data[c_code] = {period : item}
 
         # step 1. update transaction data and base indicators
+        #print(self._ct_data)
         j_idx_str = item.iterate(data)
-        try:
-            # save in time-series for current step
-            if rtu.add(c_code, data.time, j_idx_str):
-                print('write intermediate results to redis successfully:', data.time)
-            else:
-                print('write intermediate results to redis failed:', data.time)
-        except ValueError as e:
-            print(e)
+        item.make_judge()
+        #try:
+        #    # save in time-series for current step
+        #    if rtu.add(c_code + '_' + data.period, data.time, j_idx_str):
+        #        print('write intermediate results to redis successfully:', data.time)
+        #    else:
+        #        print('write intermediate results to redis failed:', data.time)
+        #except ValueError as e:
+        #    print(e)
         
+        '''
         # step 2. update strategy results
         # macd
-        f_macd_dev, f_sep_dev, f_in_dev, f_in_sep_dev = item.check_dev()
+        f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid = item.check_dev()
         # boll
         f_boll = item.check_boll()
         # dmi
@@ -70,19 +78,23 @@ class SimpleStrategy(BaseStrategy):
         # parting
         f_par = item.check_parting()
 
-        j_stg_str = json.dumps({'f_macd_dev': ''.join(f_macd_dev),
+        j_stg_str = json.dumps({'f_dev': ''.join(f_dev),
             'f_sep_dev': ''.join(f_sep_dev),
+            'f_in_dev': ''.join(f_in_dev),
+            'f_in_sep_dev': ''.join(f_in_sep_dev),
+            'f_cross_valid': ''.join(f_cross_valid),
             'f_boll': ','.join(f_boll),
             'f_dmi': ','.join(f_dmi),
             'f_par': ''.join(f_par)})
         try:
             # save in time-series for current step
-            if rtu.add(c_code + ':stg', data.time, j_stg_str):
+            if rtu.add(c_code + '_' + data.period + ':stg', data.time, j_stg_str):
                 print('write stg results to redis successfully:', data.time)
             else:
                 print('write stg results to redis failed:', data.time)
         except ValueError as e:
             print(e)
+        '''
 
         self._ct_lock.release()
 

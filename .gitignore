@@ -13,3 +13,5 @@ __pycache__
 data
 
 .DS_Store
+
+depth_server/*.csv

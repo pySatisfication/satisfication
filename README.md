@@ -4,7 +4,7 @@
 
 ### Run new main function
 ```Shell
-python main.py --trans_data_path=trans_data.txt
+python main.py --trans_data_path=data/LH
 ```
 
 ### Run unit tests

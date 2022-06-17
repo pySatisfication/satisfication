@@ -128,6 +128,8 @@ class Contract(object):
         # parting
         self._hh = []
         self._ll = []
+        self._hh_debug = []
+        self._ll_debug = []
 
         self._stg_boll = []
         self._stg_par = []
@@ -207,6 +209,7 @@ class Contract(object):
                 if k2.endswith('points'):
                     continue
                 if len(v1) != len(v2):
+                    print(k1, k2)
                     raise ValueError('inconsistent data length')
 
     def trim(self):
@@ -269,10 +272,10 @@ class Contract(object):
                     last_parting_points.insert(0, self._parting_points[-idx])
             else:
                 break
-        if DEBUG:
-            print("last pars:", self._parting_points[-1].print())
-            print("inter_time:", inter_time, event_name)
-            print("res:", len(last_parting_points))
+        #if DEBUG:
+        #    print("last pars:", self._parting_points[-1].print())
+        #    print("inter_time:", inter_time, event_name)
+        #    print("res:", len(last_parting_points))
         return last_parting_points
 
 class Option(Contract):
@@ -281,6 +284,7 @@ class Option(Contract):
         super(Option, self).__init__(c_code=code)
         self._type = 'option'
         self._cur_t_data = None
+        self._last_par_type = 0
 
     @property
     def t_data(self):
@@ -413,8 +417,11 @@ class Option(Contract):
         if len(self._close) < 2:
             self._hh.append(self._high[-1])
             self._ll.append(self._low[-1])
+            self._hh_debug.append(self._high[-1])
+            self._ll_debug.append(self._low[-1])
             return
 
+        '''
         h_2, h_3 = self._hh[-1], self._high[-1]
         l_2, l_3 = self._ll[-1], self._low[-1]
         if (h_2 < h_3 or l_2 > l_3) and (h_2 > h_3 or l_2 < l_3):
@@ -423,6 +430,8 @@ class Option(Contract):
                 print('case 0', self._time[-1])
             self._hh.append(h_3)
             self._ll.append(l_3)
+            self._hh_debug.append(h_3)
+            self._ll_debug.append(l_3)
         else:
             self._hh[-1] = -1.0
             self._ll[-1] = -1.0
@@ -432,18 +441,89 @@ class Option(Contract):
                     print('case 1', self._time[-1])
                 self._hh.append(min(h_2, h_3))
                 self._ll.append(min(l_2, l_3))
+                self._hh_debug.append(min(h_2, h_3))
+                self._ll_debug.append(min(l_2, l_3))
             elif (h_2 < h_3 and l_2 >= l_3) or (h_2 <= h_3 and l_2 > l_3):
                 # case 2, upward
                 if DEBUG:
                     print('case 2', self._time[-1])
                 self._hh.append(max(h_2, h_3))
                 self._ll.append(max(l_2, l_3))
+                self._hh_debug.append(max(h_2, h_3))
+                self._ll_debug.append(max(l_2, l_3))
             else:
                 # special judgement
                 if DEBUG:
                     print('case 3', self._time[-1])
                 self._hh.append(h_3)
                 self._ll.append(l_3)
+                self._hh_debug.append(h_3)
+                self._ll_debug.append(l_3)
+        '''
+
+        h_2, h_3 = self._hh[-1], self._high[-1]
+        l_2, l_3 = self._ll[-1], self._low[-1]
+        if (h_2 < h_3 or l_2 > l_3) and (h_2 > h_3 or l_2 < l_3):
+            # case 0
+            self._hh.append(h_3)
+            self._ll.append(l_3)
+            self._hh_debug.append(h_3)
+            self._ll_debug.append(l_3)
+        else:
+            if len(self._hh) < 2:
+                self._hh.append(h_3)
+                self._ll.append(l_3)
+                self._hh_debug.append(h_3)
+                self._ll_debug.append(l_3)
+            else:
+                h1_idx = len(self._hh) - 2
+                while(self._hh[h1_idx] < 0.0 and h1_idx > 0):
+                    h1_idx -= 1
+                if self._hh[h1_idx] == -1.0:
+                    self._hh.append(h_3)
+                    self._ll.append(l_3)
+                    self._hh_debug.append(h_3)
+                    self._ll_debug.append(l_3)
+                else:
+                    h_1 = self._hh[h1_idx]
+                    l_1 = self._ll[h1_idx]
+                    if (h_2 > h_1 and l_2 >= l_1) or (h_2 >= h_1 and l_2 > l_1):
+                        # case 1, upward
+                        self._hh.append(max(h_2, h_3))
+                        self._ll.append(max(l_2, l_3))
+                        self._hh_debug.append(max(h_2, h_3))
+                        self._ll_debug.append(max(l_2, l_3))
+                    elif (h_2 < h_1 and l_2 <= l_1) or (h_2 <= h_1 and l_2 < l_1):
+                        # case 2, downward
+                        self._hh.append(min(h_2, h_3))
+                        self._ll.append(min(l_2, l_3))
+                        self._hh_debug.append(min(h_2, h_3))
+                        self._ll_debug.append(min(l_2, l_3))
+                    else:
+                        # special judgement
+                        n = h1_idx - 1
+                        t_hh3 = h_3
+                        t_ll3 = l_3
+                        while n > 0:
+                            if (h_2 > self._hh[n] and l_2 >= self._ll[-n]) or \
+                               (h_2 >= self._hh[n] and l_2 > self._ll[-n]):
+                                t_hh3 = max(h_2, h_3)
+                                t_ll3 = max(l_2, l_3)
+                                self._hh_debug.append(max(h_2, h_3))
+                                self._ll_debug.append(max(l_2, l_3))
+                                break
+                            elif (h_2 < self._hh[n] and l_2 <= self._ll[-n]) or \
+                                 (h_2 <= self._hh[n] and l_2 < self._ll[-n]):
+                                t_hh3 = min(h_2, h_3)
+                                t_ll3 = min(l_2, l_3)
+                                self._hh_debug.append(min(h_2, h_3))
+                                self._ll_debug.append(min(l_2, l_3))
+                                break
+                            n -= 1
+                        self._hh.append(t_hh3)
+                        self._ll.append(t_ll3)
+            self._hh[-2] = -1.0
+            self._ll[-2] = -1.0
 
     def update_dmi(self):
         """
@@ -536,15 +616,20 @@ class Option(Contract):
         idx_1, idx_2, idx_3 = idx_gt_0[-3:]
         h_1, h_2, h_3 = self._hh[idx_1], self._hh[idx_2], self._hh[idx_3]
         l_1, l_2, l_3 = self._ll[idx_1], self._ll[idx_2], self._ll[idx_3]
-        l_1, l_2, l_3 = self._ll[-3], self._ll[-2], self._ll[-1]
         if h_2 > h_1 and h_2 > h_3 and l_2 > l_1 and l_2 > l_3:
+            if self._last_par_type == 1:
+                return f_par
             # 顶分型
             self._parting_points.append(PartingPoint('TP', self._time[-2], self._time[-1], len(self._close) - 1))
             f_par[0] = '1'
+            self._last_par_type = 1
         elif h_2 < h_1 and h_2 < h_3 and l_2 < l_1 and l_2 < l_3:
+            if self._last_par_type == -1:
+                return f_par
             # 底分型
             self._parting_points.append(PartingPoint('BP', self._time[-2], self._time[-1], len(self._close) - 1))
             f_par[0] = '-1'
+            self._last_par_type = -1
 
         return f_par
 
@@ -913,7 +998,7 @@ if __name__ == '__main__':
 
     ct_agent = {}
 
-    files = sorted(fu.get_files(sys.argv[1], sys.argv[2]))
+    files = sorted(fu.get_all_files(sys.argv[1], sys.argv[2]))
 
     res = []
     row_head = []
@@ -1010,10 +1095,10 @@ if __name__ == '__main__':
 
     res_arr = np.array(res)
     res_arr_t = res_arr.T
-    res_arr_t[29][1:] = ct_agent['LH2207'].hh
-    res_arr_t[30][1:] = ct_agent['LH2207'].ll
-    print(res_arr_t[29])
-    print(res_arr_t[30])
+    res_arr_t[31][1:] = ct_agent['LH2207'].hh
+    res_arr_t[32][1:] = ct_agent['LH2207'].ll
+    print(res_arr_t[31])
+    print(res_arr_t[32])
 
     #file_name = file_path.split('/')[-1]
     file_name = 'LH2207_d_1'
