@@ -253,7 +253,7 @@ class KHandlerThread(threading.Thread):
                             or (now_time == TIME_TWENTYTHREE_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME5)) \
                             or (now_time == TIME_ONE_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME6)) \
                             or (now_time == TIME_TWO_THIRTYONE and self._tth.check_close_time(code_prefix, CLOSE_TIME7)):
-                        logger.debug('[gen_cloing_kline]generate last K, code:{}, end_time:{}, cur_time:{}'.format(
+                        logger.info('[gen_cloing_kline]generate last K, code:{}, end_time:{}, cur_time:{}'.format(
                             code,
                             end_dt_str,
                             norm_close_dt_str))
@@ -263,12 +263,12 @@ class KHandlerThread(threading.Thread):
 
                     # 收盘需要清空品种对应全部缓存, 其他休市或停盘时间只是处理完一个周期就清空对应周期的缓存
                     if now_time in [TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN]:
-                        logger.debug('[gen_cloing_kline]clear cache, code:{}, now_time:{}'.format(code, now_time))
+                        logger.info('[gen_cloing_kline]clear cache, code:{}, now_time:{}'.format(code, now_time))
                         self._kline_cache[code] = {}
                         self._last_depth.pop(code)
                         self._code_auction_hour.pop(code)
                 self._closeout_event.clear()
-            logger.debug('sleeping, wait closeout event being set...')
+            logger.info('sleeping, wait closeout event being set...')
 
     def cancel(self):
         self._isCanceled = True
@@ -300,7 +300,7 @@ class KHandlerThread(threading.Thread):
             logger.warning("cannot continue to consume: %s", error)
 
             exc_info = sys.exc_info()
-            logger.debug("raising notified error: %s %s", exc_info[0], exc_info[1])
+            logger.info("raising notified error: %s %s", exc_info[0], exc_info[1])
             for filename, linenum, funcname, source in traceback.extract_tb(exc_info[2]):
                 logger.warning("%-23s:%s '%s' in %s", filename, linenum, source, funcname)
 
@@ -736,9 +736,10 @@ class KHandlerThread(threading.Thread):
 
         # 集合竞价
         if cur_depth.is_call_auction \
-            or (self._tth.check_open_time(code_prefix, cur_time) and self._last_depth[code].is_call_auction):
+            or (self._tth.check_open_time(code_prefix, cur_time) and code in self._last_depth \
+                and self._last_depth[code].is_call_auction):
             self.update_cache(code, M_PERIOD_KEY, cur_sec, cur_dt_str, cur_dt, depth=cur_depth)
-            logger.debug('[depth_tick]auction, code:{}, update_time:{}'.format(
+            logger.info('[depth_tick]auction, code:{}, update_time:{}'.format(
                 code,
                 cur_depth.update_time))
             return
@@ -793,7 +794,7 @@ class KHandlerThread(threading.Thread):
 
         # 15s
         k_time = self.check_out_sec(15, cur_depth.trading_day, end_sec, end_dt, cur_dt)
-        if k_time is not None and self._kline_cache[code][KEY_K_15S] is not None and not self._last_depth[code].is_call_auction:
+        if k_time is not None and self._kline_cache[code][KEY_K_15S]:
             k_line = self.gen_kline(code, KEY_K_15S, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -802,7 +803,7 @@ class KHandlerThread(threading.Thread):
 
         # 30s 
         k_time = self.check_out_sec(30, cur_depth.trading_day, end_sec, end_dt, cur_dt)
-        if k_time is not None and self._kline_cache[code][KEY_K_30S] and not self._last_depth[code].is_call_auction:
+        if k_time is not None and self._kline_cache[code][KEY_K_30S]:
             k_line = self.gen_kline(code, KEY_K_30S, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -811,7 +812,7 @@ class KHandlerThread(threading.Thread):
 
         # 1m
         k_time = self.check_out_min(1, cur_depth.trading_day, end_sec, end_min, end_dt, cur_dt)
-        if k_time is not None and self._kline_cache[code][KEY_K_1M] and not self._last_depth[code].is_call_auction:
+        if k_time is not None and self._kline_cache[code][KEY_K_1M]:
             k_line = self.gen_kline(code, KEY_K_1M, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -820,7 +821,7 @@ class KHandlerThread(threading.Thread):
 
         # 3m
         k_time = self.check_out_min(3, cur_depth.trading_day, end_sec, end_min, end_dt, cur_dt)
-        if k_time is not None and self._kline_cache[code][KEY_K_3M] and not self._last_depth[code].is_call_auction:
+        if k_time is not None and self._kline_cache[code][KEY_K_3M]:
             k_line = self.gen_kline(code, KEY_K_3M, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -828,7 +829,7 @@ class KHandlerThread(threading.Thread):
 
         # 5m
         k_time = self.check_out_min(5, cur_depth.trading_day, end_sec, end_min, end_dt, cur_dt)
-        if k_time is not None and self._kline_cache[code][KEY_K_5M] and not self._last_depth[code].is_call_auction:
+        if k_time is not None and self._kline_cache[code][KEY_K_5M]:
             k_line = self.gen_kline(code, KEY_K_5M, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -837,7 +838,7 @@ class KHandlerThread(threading.Thread):
 
         # 15m
         k_time = self.check_out_min(15, cur_depth.trading_day, end_sec, end_min, end_dt, cur_dt)
-        if k_time is not None and self._kline_cache[code][KEY_K_15M] and not self._last_depth[code].is_call_auction:
+        if k_time is not None and self._kline_cache[code][KEY_K_15M]:
             k_line = self.gen_kline(code, KEY_K_15M, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -849,7 +850,7 @@ class KHandlerThread(threading.Thread):
         if code in self._code_auction_hour and self._code_auction_hour[code] <= TIME_NINE:
             if k_time and k_time.split(' ')[1] < TIME_NINE:
                 k_time = None
-        if k_time is not None and self._kline_cache[code][KEY_K_30M] and not self._last_depth[code].is_call_auction:
+        if k_time is not None and self._kline_cache[code][KEY_K_30M]:
             k_line = self.gen_kline(code, KEY_K_30M, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -860,7 +861,7 @@ class KHandlerThread(threading.Thread):
         if code in self._code_auction_hour and self._code_auction_hour[code] <= TIME_NINE:
             if k_time and k_time.split(' ')[1] < TIME_NINE:
                 k_time = None
-        if k_time is not None and self._kline_cache[code][KEY_K_1H] and not self._last_depth[code].is_call_auction:
+        if k_time is not None and self._kline_cache[code][KEY_K_1H]:
             k_line = self.gen_kline(code, KEY_K_1H, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -871,7 +872,7 @@ class KHandlerThread(threading.Thread):
         if code in self._code_auction_hour and self._code_auction_hour[code] <= TIME_NINE:
             if k_time and k_time.split(' ')[1] < TIME_NINE:
                 k_time = None
-        if k_time is not None and self._kline_cache[code][KEY_K_2H] and not self._last_depth[code].is_call_auction:
+        if k_time is not None and self._kline_cache[code][KEY_K_2H]:
             k_line = self.gen_kline(code, KEY_K_2H, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -879,7 +880,7 @@ class KHandlerThread(threading.Thread):
 
         # 1d
         k_time = self.check_out_1d(code_prefix, cur_depth.trading_day, cur_time, end_dt_str, cur_dt_str)
-        if k_time is not None and self._kline_cache[code][KEY_K_1D] and not self._last_depth[code].is_call_auction:
+        if k_time is not None and self._kline_cache[code][KEY_K_1D]:
             k_line = self.gen_kline(code, KEY_K_1D, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -1013,7 +1014,7 @@ class KHandlerThread(threading.Thread):
 
         # 集合竞价
         if self._tth.check_in(2, code, cur_depth.update_time):
-            logger.debug('[consume]auction, code:{}, update_time:{}'.format(code, cur_depth.update_time))
+            logger.info('[consume]auction, code:{}, update_time:{}'.format(code, cur_depth.update_time))
             cur_depth.is_call_auction = True
             self._code_auction_hour[code] = cur_depth.update_time
 
@@ -1024,11 +1025,11 @@ class KHandlerThread(threading.Thread):
                 last_hour = int(self._last_depth[code].update_time[0:2])
                 t_hour = int(cur_depth.update_time[0:2])
                 if (last_hour in [14, 15] and t_hour in [8, 9, 20, 21]) or cur_depth.is_call_auction:
-                    logger.debug('[consume]clear last depth, code:{}, update_time:{}'.format(code, cur_depth.update_time))
+                    logger.info('[consume]clear last depth, code:{}, update_time:{}'.format(code, cur_depth.update_time))
                     self._last_depth.pop(code)
         else:
             if code in self._last_depth and cur_depth.trading_day != self._last_depth[code].trading_day:
-                logger.debug('[consume]clear last depth, code:{}, update_time:{}'.format(code, cur_depth.update_time))
+                logger.info('[consume]clear last depth, code:{}, update_time:{}'.format(code, cur_depth.update_time))
                 self._last_depth.pop(code)
 
         # 计算delta并记录last depth
@@ -1043,7 +1044,9 @@ class KHandlerThread(threading.Thread):
 
         # 第一条depth
         if code not in self._kline_cache or len(self._kline_cache[code]) == 0:
-            logger.debug('[consume]first depth, code:{}, update_time:{}'.format(code, cur_depth.update_time))
+            logger.info('[consume]first depth, code:{}, update_time:{}'.format(code, cur_depth.update_time))
+            if not cur_depth.is_call_auction:
+                logger.warning('[consume]no auction, code:{}, update_time:{}'.format(code, cur_depth.update_time))
             self.init_cache(cur_depth)
             self._last_depth[code] = cur_depth
             return
@@ -1198,11 +1201,14 @@ if __name__ == '__main__':
     m_code_next_span = {}
     m_code_depth_status = {}
 
-    if args.depth_source == 'kafka':
+    if args.depth_source in MESSAGE_SOURCE:
+        print('depth_source is kafka...')
         consumer = KafkaConsumer(FUTURES_DEPTH_TOPIC, auto_offset_reset='earliest', bootstrap_servers= ['localhost:9092'])
         for msg_data in consumer:
-            assert len(msg_data) != 0
-            depth_data_iterate(msg_data)
+            assert msg_data is not None
+            if msg_data is None or len(msg_data.value) == 0:
+                continue
+            depth_data_iterate(msg_data.value.decode('utf-8'))
     else:
         with open(args.depth_source, 'r') as f:
             for line in f.readlines():
