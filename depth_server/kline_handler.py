@@ -17,10 +17,13 @@ else:
     import Queue
 
 import parallel as px
+from kafka import KafkaConsumer,KafkaProducer
 
+MESSAGE_SOURCE = ['kafka','redis','rabbitmq']
 HACK_DELAY = 0.02
 NUM_HANDLER = 5
 QUEUE_SIZE = 1000000
+queues = [Queue.Queue(QUEUE_SIZE) for i in range(NUM_HANDLER)]
 
 GLOBAL_CACHE_KEY = 'global_cache'
 KEY_K_15S = 'key_k_15s'
@@ -36,8 +39,6 @@ KEY_K_1D  = 'key_k_1d'
 M_PERIOD_KEY = [KEY_K_15S, KEY_K_30S,
                 KEY_K_1M, KEY_K_3M, KEY_K_5M, KEY_K_15M, KEY_K_30M,
                 KEY_K_1H, KEY_K_2H, KEY_K_1D]
-
-queues = [Queue.Queue(QUEUE_SIZE) for i in range(NUM_HANDLER)]
 
 def parse_args():
     """
@@ -142,12 +143,12 @@ class KHandlerThread(threading.Thread):
     """
     Thread that can be canceled using `cancel()`.
     """
-    def __init__(self, h_id, event, file_name):
+    def __init__(self, h_id, event, data_source):
         threading.Thread.__init__(self)
         self.name = f"handler_{h_id}"
         self._hid = h_id
-        self._file_name = file_name
-        #self._queues = [Queue.Queue(queueSize) for i in range(queueNum)]
+        self._data_source = data_source
+
         self._event = event
         self._first_depth = {}
         self._tth = TranTimeHelper()
@@ -156,12 +157,15 @@ class KHandlerThread(threading.Thread):
         self._closeout_event = threading.Event()
         self._k_lines = []
         self._log = logging.getLogger("worker")
-        #self._code_auction_time = {}
+        self._code_auction_hour = {}
         self._code_auc_time = {}
 
         # 休市&收盘子线程
         self.close_scaner = threading.Thread(target=self.gen_cloing_kline)
         self.close_scaner.start()
+
+        # 消息队列
+        #self.producer = KafkaProducer(bootstrap_servers=['localhost:9092'])
 
     @property
     def k_lines(self):
@@ -176,74 +180,78 @@ class KHandlerThread(threading.Thread):
                 now_date = now_dt_str.split(' ')[0]         # 20220522
                 now_time = now_dt_str.split(' ')[1]         # 15:15:00
 
-                mock_time = '08:55:00'
-
+                mock_time = '13:30:00'
                 time.sleep(1)
                 if now_time not in [mock_time, TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE, TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN,
                                     TIME_TWENTYTHREE_ONE, TIME_ONE_ONE, TIME_TWO_THIRTYONE]:
                     continue
                 for code, caches in self._kline_cache.items():
-                    if caches is None:
+                    if caches is None or len(caches) == 0:
                         continue
                     code_prefix = self._tth.get_code_prefix(code)
+                    # global cache
+                    g_cache = self._kline_cache[code][GLOBAL_CACHE_KEY]
 
-                    suspend_or_end = False
-                    for period, cache in caches.items():
-                        if cache is None:
-                            continue
-                        suspend_or_end = True
+                    #suspend_or_end = False
+                    #for period, cache in caches.items():
+                    #    if cache is None:
+                    #        continue
+                        #suspend_or_end = True
 
-                        tmp = cache.end_dt_str.split(' ')
-                        cache_date = tmp[0]
-                        cache_time = tmp[1]
-                        #if cache_date != now_date:
-                        #    continue
+                    end_dt_str = g_cache.end_dt_str
+                    cache_date = end_dt_str.split(' ')[0]
+                    #cache_time = end_dt_str[1]
+                    #if cache_date != now_date:
+                    #    continue
 
-                        # 10:15, 11:30, 23:00, 01:00, 02:30
-                        if now_time == TIME_TEN_SIXTEEN:
-                            norm_close_dt_str = cache_date + ' ' + TIME_TEN_FIFTEEN
-                            norm_end_dt_str = cache_date + ' ' + TIME_TEN_SIXTEEN
-                        elif now_time == TIME_ELEVEN_THIRTYONE:
-                            norm_close_dt_str = cache_date + ' ' + TIME_ELEVEN_THIRTY
-                            norm_end_dt_str = cache_date + ' ' + TIME_ELEVEN_THIRTYONE
-                        elif now_time == mock_time:
-                            norm_close_dt_str = cache_date + ' ' + TIME_FIFTEEN
-                            norm_end_dt_str = cache_date + ' ' + TIME_FIFTEEN_ONE
-                        elif now_time == TIME_FIFTEEN_SIXTEEN:
-                            norm_close_dt_str = cache_date + ' ' + TIME_FIFTEEN_FIFTEEN
-                            norm_end_dt_str = cache_date + ' ' + TIME_FIFTEEN_SIXTEEN
-                        elif now_time == TIME_TWENTYTHREE_ONE:
-                            norm_close_dt_str = cache_date + ' ' + TIME_TWENTYTHREE
-                            norm_end_dt_str = cache_date + ' ' + TIME_TWENTYTHREE_ONE
-                        elif now_time == TIME_ONE_ONE:
-                            norm_close_dt_str = cache_date + ' ' + TIME_ONE
-                            norm_end_dt_str = cache_date + ' ' + TIME_ONE_ONE
-                        elif now_time == TIME_TWO_THIRTYONE:
-                            norm_close_dt_str = cache_date + ' ' + TIME_TWO_THIRTY
-                            norm_end_dt_str = cache_date + ' ' + TIME_TWO_THIRTYONE
+                    # 10:15, 11:30, 23:00, 01:00, 02:30
+                    if now_time == TIME_TEN_SIXTEEN:
+                        norm_close_dt_str = cache_date + ' ' + TIME_TEN_FIFTEEN
+                        #norm_end_dt_str = cache_date + ' ' + TIME_TEN_SIXTEEN
+                    elif now_time == TIME_ELEVEN_THIRTYONE:
+                        norm_close_dt_str = cache_date + ' ' + TIME_ELEVEN_THIRTY
+                        #norm_end_dt_str = cache_date + ' ' + TIME_ELEVEN_THIRTYONE
+                    elif now_time == TIME_FIFTEEN_ONE:
+                        norm_close_dt_str = cache_date + ' ' + TIME_FIFTEEN
+                        #norm_end_dt_str = cache_date + ' ' + TIME_FIFTEEN_ONE
+                    elif now_time == mock_time:
+                        norm_close_dt_str = cache_date + ' ' + TIME_FIFTEEN_FIFTEEN
+                        #norm_end_dt_str = cache_date + ' ' + TIME_FIFTEEN_SIXTEEN
+                    elif now_time == TIME_TWENTYTHREE_ONE:
+                        norm_close_dt_str = cache_date + ' ' + TIME_TWENTYTHREE
+                        #norm_end_dt_str = cache_date + ' ' + TIME_TWENTYTHREE_ONE
+                    elif now_time == TIME_ONE_ONE:
+                        norm_close_dt_str = cache_date + ' ' + TIME_ONE
+                        #norm_end_dt_str = cache_date + ' ' + TIME_ONE_ONE
+                    elif now_time == TIME_TWO_THIRTYONE:
+                        norm_close_dt_str = cache_date + ' ' + TIME_TWO_THIRTY
+                        #norm_end_dt_str = cache_date + ' ' + TIME_TWO_THIRTYONE
 
-                        #if now_time == TIME_FIFTEEN_ONE:
-                        #    norm_close_dt_str = cache_date + ' ' + TIME_FIFTEEN
+                    #if now_time == TIME_FIFTEEN_ONE:
+                    #    norm_close_dt_str = cache_date + ' ' + TIME_FIFTEEN
 
-                        #if (now_time == TIME_FIFTEEN_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME3) and cache.end_dt_str < norm_close_dt_str):
-                        #    or (now_time == TIME_FIFTEEN_SIXTEEN and self._tth.check_close_time(code_prefix, CLOSE_TIME4) and cache.end_dt_str < norm_close_dt_str):
+                    #if (now_time == TIME_FIFTEEN_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME3) and cache.end_dt_str < norm_close_dt_str):
+                    #    or (now_time == TIME_FIFTEEN_SIXTEEN and self._tth.check_close_time(code_prefix, CLOSE_TIME4) and cache.end_dt_str < norm_close_dt_str):
 
-                        if (now_time == TIME_TEN_SIXTEEN and self._tth.check_morning_suspend(code_prefix)) \
-                                or now_time == mock_time \
-                                or (now_time == TIME_FIFTEEN_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME3)) \
-                                or (now_time == TIME_FIFTEEN_SIXTEEN and self._tth.check_close_time(code_prefix, CLOSE_TIME4)) \
-                                or (now_time == TIME_TWENTYTHREE_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME5)) \
-                                or (now_time == TIME_ONE_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME6)) \
-                                or (now_time == TIME_TWO_THIRTYONE and self._tth.check_close_time(code_prefix, CLOSE_TIME7)):
-                            print('end_time:', dt_util.str_sub_min1(norm_end_dt_str), 'cur_time:', norm_close_dt_str)
-                            cur_depth = Depth(norm_close_dt_str.split(' ') + [code])
-                            self.depth_tick(cur_depth, close_out=True, mock_end_dt_str=dt_util.str_sub_min1(norm_end_dt_str))
-                            #self._kline_cache[code][period] = None
-                            break
-                    #if now_time in [mock_time, TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN]:
-                    #    self._kline_cache[code] = {}
-                #self._closeout_event.clear()
-                #time.sleep(0.5)
+                    if (now_time == TIME_TEN_SIXTEEN and self._tth.check_morning_suspend(code_prefix)) \
+                            or now_time == mock_time \
+                            or now_time == TIME_ELEVEN_THIRTYONE \
+                            or (now_time == TIME_FIFTEEN_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME3)) \
+                            or (now_time == TIME_FIFTEEN_SIXTEEN and self._tth.check_close_time(code_prefix, CLOSE_TIME4)) \
+                            or (now_time == TIME_TWENTYTHREE_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME5)) \
+                            or (now_time == TIME_ONE_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME6)) \
+                            or (now_time == TIME_TWO_THIRTYONE and self._tth.check_close_time(code_prefix, CLOSE_TIME7)):
+                        print('end_time:', end_dt_str, 'cur_time:', norm_close_dt_str)
+                        #print('end_time:', dt_util.str_sub_min1(norm_end_dt_str), 'cur_time:', norm_close_dt_str)
+                        cur_depth = Depth(norm_close_dt_str.split(' ') + [code])
+                        self.depth_tick(cur_depth, close_out=True, mock_end_dt_str=end_dt_str)
+                        #self.depth_tick(cur_depth, close_out=True, mock_end_dt_str=dt_util.str_sub_min1(norm_end_dt_str))
+                        #self._kline_cache[code][period] = None
+                        #break
+                    if now_time in [mock_time, TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN]:
+                        self._kline_cache[code] = {}
+                self._closeout_event.clear()
+            print('sleeping, wait closeout event being set...')
 
     def cancel(self):
         self._isCanceled = True
@@ -328,11 +336,15 @@ class KHandlerThread(threading.Thread):
 
         # 09:00:00开盘, 上午有中场休息
         if self._tth.check_open_time(code_prefix, OPEN_TIME1) and self._tth.check_morning_suspend(code_prefix):
+            is_case6 = self._tth.check_close_time(code_prefix, CLOSE_TIME7)
+            is_case5 = self._tth.check_close_time(code_prefix, CLOSE_TIME6)
+            is_case4 = self._tth.check_close_time(code_prefix, CLOSE_TIME5)
+            is_case3 = self._tth.check_close_time(code_prefix, CLOSE_TIME3)
             # case3: 15:00:00收盘
             # case4: 23:00:00收盘
             # case5: 01:00:00收盘
             # case6: 02:30:00收盘, 15:00:00收盘
-            if self._tth.check_close_time(code_prefix, CLOSE_TIME3):
+            if is_case6 or is_case5 or is_case4 or is_case3:
                 # 9:30:00
                 if cur_time >= TIME_NINE_THIRTY and last_update_time < TIME_NINE_THIRTY:
                     return trading_day + ' ' + KTIME_NINE
@@ -380,9 +392,13 @@ class KHandlerThread(threading.Thread):
                 # 临界时间
                 #zero_dt_str = trading_day + ' ' + TIME_ZERO
                 #if cur_dt_str >= zero_dt_str and end_dt_str < zero_dt_str:
-                if (cur_time[0:2] <= '11' and cur_time[0:2] >= '00') \
-                        and (last_update_time[0:2] < '24' and last_update_time[0:2] >= '21'):
+                t_cur_hour = int(cur_time[0:2])
+                t_end_hour = int(last_update_time[0:2])
+                if (t_cur_hour <= 11 and t_cur_hour >= 0) and (t_end_hour < 24 and t_end_hour >= 23):
                     return trading_day + ' ' + KTIME_TWENTYTHREE_THIRTY
+                if (t_cur_hour <= 11 and t_cur_hour >= 0) and (t_end_hour < 23 and t_end_hour >= 22):
+                    return trading_day + ' ' + KTIME_TWENTYTWO_THIRTY
+
                 # 00:30:00
                 if cur_time >= TIME_ZERO_THIRTY and last_update_time < TIME_ZERO_THIRTY:
                     return trading_day + ' ' + KTIME_ZERO
@@ -439,9 +455,14 @@ class KHandlerThread(threading.Thread):
     def check_out_1h(self, code_prefix, trading_day, cur_time, end_dt_str, cur_dt_str):
         '''
         '''
-        last_update_time = end_dt_str.split(' ')[1]
+        last_date_time = end_dt_str.split(' ')
+        last_update_date = last_date_time[0]
+        last_update_time = last_date_time[1]
         #if trading_day > end_dt_str.split(' ')[0]:
         #    return True
+
+        t_cur_hour = int(cur_time[0:2])
+        t_end_hour = int(last_update_time[0:2])
 
         # 09:00:00开盘, 上午有中场休息
         if self._tth.check_open_time(code_prefix, OPEN_TIME1) and self._tth.check_morning_suspend(code_prefix):
@@ -480,8 +501,7 @@ class KHandlerThread(threading.Thread):
                 #   TIME_ZERO_NEW = TIME_ZERO
                 #zero_dt_str = trading_day + ' ' + TIME_ZERO
                 #if cur_dt_str >= zero_dt_str and end_dt_str < zero_dt_str:
-                if (cur_time[0:2] <= '11' and cur_time[0:2] >= '00') \
-                        and (last_update_time[0:2] < '24' and last_update_time[0:2] >= '21'):
+                if (t_cur_hour <= 11 and t_cur_hour >= 0) and (t_end_hour == 23):
                     return trading_day + ' ' + KTIME_TWENTYTHREE
                 # 01:00:00
                 if cur_time >= TIME_ONE and last_update_time < TIME_ONE:
@@ -509,6 +529,7 @@ class KHandlerThread(threading.Thread):
                 # 22:00:00 
                 if cur_time >= TIME_TWENTYTWO and last_update_time < TIME_TWENTYTWO:
                     return trading_day + ' ' + KTIME_TWENTYONE
+                # case5
                 # 23:00:00 
                 if cur_time >= TIME_TWENTYTHREE and last_update_time < TIME_TWENTYTHREE:
                     return trading_day + ' ' + KTIME_TWENTYTWO
@@ -519,13 +540,15 @@ class KHandlerThread(threading.Thread):
                 #    TIME_ZERO_NEW = TIME_ZERO
                 #zero_dt_str = trading_day + ' ' + TIME_ZERO
                 #if cur_dt_str >= zero_dt_str and end_dt_str < zero_dt_str:
-                if (cur_time[0:2] <= '11' and cur_time[0:2] >= '00') \
-                        and (last_update_time[0:2] < '24' and last_update_time[0:2] >= '21'):
-                    if is_case5:
-                        return trading_day + ' ' + KTIME_TWENTYTHREE
-                    elif is_case4:
-                        return trading_day + ' ' + KTIME_TWENTYTWO
-                    return None
+                # case4 & case5
+
+                # case 5
+                if (t_cur_hour <= 1 and t_cur_hour >= 0) and (t_end_hour == 23):
+                    return trading_day + ' ' + KTIME_TWENTYTHREE
+                if (t_cur_hour <= 11 and t_cur_hour >= 8) and (t_end_hour == 22):
+                    if code_prefix == 'SA':
+                        return last_update_date + ' ' + KTIME_TWENTYTWO
+                    return trading_day + ' ' + KTIME_TWENTYTWO
                 # 01:00:00
                 if cur_time >= TIME_ONE and last_update_time < TIME_ONE:
                     return trading_day + ' ' + KTIME_ZERO
@@ -555,14 +578,22 @@ class KHandlerThread(threading.Thread):
     def check_out_2h(self, code_prefix, trading_day, cur_time, end_dt_str, cur_dt_str):
         '''
         '''
-        last_update_time = end_dt_str.split(' ')[1]
+        last_date_time = end_dt_str.split(' ')
+        last_update_date = last_date_time[0]
+        last_update_time = last_date_time[1]
         #if trading_day > end_dt_str.split(' ')[0]:
         #    return True
+        t_cur_hour = int(cur_time[0:2])
+        t_end_hour = int(last_update_time[0:2])
 
         # 09:00:00开盘, 上午有中场休息
         if self._tth.check_open_time(code_prefix, OPEN_TIME1) and self._tth.check_morning_suspend(code_prefix):
             # case6: 02:30:00收盘, 15:00:00收盘
-            if self._tth.check_close_time(code_prefix, CLOSE_TIME7):
+            is_case6 = self._tth.check_close_time(code_prefix, CLOSE_TIME7)
+            is_case5 = self._tth.check_close_time(code_prefix, CLOSE_TIME6)
+            is_case4 = self._tth.check_close_time(code_prefix, CLOSE_TIME5)
+            is_case3 = self._tth.check_close_time(code_prefix, CLOSE_TIME3)
+            if is_case6:
                 # TODO 是否需要判断cache中的open_time
                 # 9:30:00
                 if cur_time >= TIME_NINE_THIRTY and last_update_time < TIME_NINE_THIRTY:
@@ -583,19 +614,19 @@ class KHandlerThread(threading.Thread):
             # case5: 01:00:00收盘, 15:00:00收盘
             # case4: 23:00:00收盘, 15:00:00收盘
             # case3: 15:00:00收盘
-            elif self._tth.check_close_time(code_prefix, CLOSE_TIME6) \
-                    or self._tth.check_close_time(code_prefix, CLOSE_TIME5) \
-                    or self._tth.check_close_time(code_prefix, CLOSE_TIME3):
+            elif is_case5 or is_case4 or is_case3:
                 # 11:15:00
                 if cur_time >= TIME_ELEVEN_FIFTEEN and last_update_time < TIME_ELEVEN_FIFTEEN:
                     return trading_day + ' ' + KTIME_NINE
                 # 15:00:00 
                 if cur_time >= TIME_FIFTEEN and last_update_time < TIME_FIFTEEN:
                     return trading_day + ' ' + KTIME_ELEVEN_FIFTEEN
-                # 23:00:00 
-                if (cur_time[0:2] <= '11' and cur_time[0:2] >= '00') \
-                        and (last_update_time[0:2] < '24' and last_update_time[0:2] >= '21'):
-                #if cur_time >= TIME_TWENTYTHREE and last_update_time < TIME_TWENTYTHREE:
+                if cur_time >= TIME_TWENTYTHREE and last_update_time < TIME_TWENTYTHREE:
+                    return trading_day + ' ' + KTIME_TWENTYONE
+                # 23:00:00
+                if (t_cur_hour <= 11 and t_cur_hour >= 0) and (t_end_hour < 23 and t_end_hour >= 21):
+                    if code_prefix == 'SA':
+                        return last_update_date + ' ' + KTIME_TWENTYONE
                     return trading_day + ' ' + KTIME_TWENTYONE
                 # 01:00:00 
                 if cur_time >= TIME_ONE and last_update_time < TIME_ONE:
@@ -647,22 +678,27 @@ class KHandlerThread(threading.Thread):
         #if period == KEY_K_15M and k_time == '20220609 02:00':
         #    print("20220609 02:00", period, kwargs['depth'].update_time, kwargs['depth'].update_millisec)
 
-        file_p = k_time.split(' ')[0][-4:]
-        if file_p == '0:00':
-            print('')
-
-        with open('k_line_{}.csv'.format(self._file_name), 'a') as w:
-            if k_line.open > 0.0 and k_line.high > 0.0 and k_line.low > 0.0 and k_line.close > 0.0:
-                w.write(k_line.print_line() + '\n')
+        # push into kafka
+        if self._data_source in MESSAGE_SOURCE:
+            #self.producer.send('FuturesKLine', k_line.print_line().encode('utf-8'), partition=0)
+            pass
+        else:
+            with open('k_line_{}.csv'.format(self._data_source), 'a') as w:
+                if k_line.open > 0.0 and k_line.high > 0.0 and k_line.low > 0.0 and k_line.close > 0.0:
+                    w.write(k_line.print_line() + '\n')
         
         if kwargs['close_out']:
             # 天收盘
             self._kline_cache[code][period] = None
         else:
             # global cache
+            #if code not in self._kline_cache or GLOBAL_CACHE_KEY not in self._kline_cache[code]:
+            #    print('')
+            #assert code in self._kline_cache and GLOBAL_CACHE_KEY in self._kline_cache[code], 'code:{}' % (code)
             if code not in self._kline_cache or GLOBAL_CACHE_KEY not in self._kline_cache[code]:
-                print('')
-            assert code in self._kline_cache and GLOBAL_CACHE_KEY in self._kline_cache[code], 'code:{}' % (code)
+                self._log.error('[gen_kline]no cache')
+                return k_line
+            # 生成k时必须更新缓存
             self._kline_cache[code][GLOBAL_CACHE_KEY].end_dt_str = cur_dt_str
 
             # 更新对应周期缓存
@@ -695,17 +731,10 @@ class KHandlerThread(threading.Thread):
 
         cur_time = cur_depth.update_time
 
-        if cur_time == '23:00:00':
-            print('')
-
-
-
         # 集合竞价
-        if self._tth.check_open_time(code_prefix, cur_time) and self._last_depth[code].is_call_auction:
-            #for p_key in M_PERIOD_KEY:
+        if cur_depth.is_call_auction \
+            or (self._tth.check_open_time(code_prefix, cur_time) and self._last_depth[code].is_call_auction):
             self.update_cache(code, M_PERIOD_KEY, cur_sec, cur_dt_str, cur_dt, depth=cur_depth)
-            if not self._closeout_event.isSet():
-                self._closeout_event.set()
             return
 
         # 最后depth
@@ -723,19 +752,9 @@ class KHandlerThread(threading.Thread):
             if is_suspend_times:
                 for p_key in M_PERIOD_KEY:
                     if close_out:
-                        if p_key == KEY_K_30M:  # 30M
-                            k_time = self.check_out_30m(code_prefix, cur_depth.trading_day, cur_time, end_dt_str, cur_dt_str)
-                        elif p_key == KEY_K_1H: # 1H
-                            k_time = self.check_out_1h(code_prefix, cur_depth.trading_day, cur_time, end_dt_str, cur_dt_str)
-                        elif p_key == KEY_K_2H: # 2H
-                            k_time = self.check_out_2h(code_prefix, cur_depth.trading_day, cur_time, end_dt_str, cur_dt_str)
-                        elif p_key == KEY_K_1D:
-                            k_time = self.check_out_1d(code_prefix, cur_depth.trading_day, cur_time, end_dt_str, cur_dt_str)
-                        else:
-                            # 15s, 30s, 1M, 3M, 5M, 15M
-                            k_time = self.get_show_ktime(code_prefix, p_key,
-                                                         cur_depth.trading_day, end_sec, end_min, end_hour, cur_time,
-                                                         end_dt_str, cur_dt_str, end_dt, cur_dt)
+                        k_time = self.get_show_ktime(code_prefix, p_key,
+                                                     cur_depth.trading_day, end_sec, end_min, end_hour, cur_time,
+                                                     end_dt_str, cur_dt_str, end_dt, cur_dt)
                         if not k_time:
                             continue
                         if self._kline_cache[code][p_key] is None:
@@ -745,8 +764,8 @@ class KHandlerThread(threading.Thread):
                         # 清空缓存
                         #self._kline_cache[code][p_key] = None
                     else:
-                        # 休市或收盘时间，不更新缓存中的end_time
-                        self.update_cache(code, [p_key], cur_sec, cur_dt_str, cur_dt, depth=cur_depth, do_not_update_end_time=True)
+                        # 休市或收盘时间，不更新缓存end_time
+                        self.update_cache(code, [p_key], cur_sec, cur_dt_str, cur_dt, depth=cur_depth, dnot_update_end_time=True)
             if is_finish_times:
                 for p_key in M_PERIOD_KEY:
                     if close_out:
@@ -761,7 +780,7 @@ class KHandlerThread(threading.Thread):
                         self.k_lines.append(k_line)
                     else:
                         # 休市或收盘时间，不更新缓存中的end_time
-                        self.update_cache(code, [p_key], cur_sec, cur_dt_str, cur_dt, depth=cur_depth, do_not_update_end_time=True)
+                        self.update_cache(code, [p_key], cur_sec, cur_dt_str, cur_dt, depth=cur_depth, dnot_update_end_time=True)
                 # 清空缓存
                 #self._kline_cache[code] = {}
             return
@@ -828,6 +847,9 @@ class KHandlerThread(threading.Thread):
 
         # 30m
         k_time = self.check_out_30m(code_prefix, cur_depth.trading_day, cur_time, end_dt_str, cur_dt_str)
+        if code in self._code_auction_hour and self._code_auction_hour[code] <= TIME_NINE:
+            if k_time and k_time.split(' ')[1] < TIME_NINE:
+                k_time = None
         if k_time is not None and self._kline_cache[code][KEY_K_30M] and not self._last_depth[code].is_call_auction:
             k_line = self.gen_kline(code, KEY_K_30M, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             self.k_lines.append(k_line)
@@ -838,6 +860,9 @@ class KHandlerThread(threading.Thread):
 
         # 1h
         k_time = self.check_out_1h(code_prefix, cur_depth.trading_day, cur_time, end_dt_str, cur_dt_str)
+        if code in self._code_auction_hour and self._code_auction_hour[code] <= TIME_NINE:
+            if k_time and k_time.split(' ')[1] < TIME_NINE:
+                k_time = None
         if k_time is not None and self._kline_cache[code][KEY_K_1H] and not self._last_depth[code].is_call_auction:
             k_line = self.gen_kline(code, KEY_K_1H, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             self.k_lines.append(k_line)
@@ -848,6 +873,9 @@ class KHandlerThread(threading.Thread):
 
         # 2h
         k_time = self.check_out_2h(code_prefix, cur_depth.trading_day, cur_time, end_dt_str, cur_dt_str)
+        if code in self._code_auction_hour and self._code_auction_hour[code] <= TIME_NINE:
+            if k_time and k_time.split(' ')[1] < TIME_NINE:
+                k_time = None
         if k_time is not None and self._kline_cache[code][KEY_K_2H] and not self._last_depth[code].is_call_auction:
             k_line = self.gen_kline(code, KEY_K_2H, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             self.k_lines.append(k_line)
@@ -944,14 +972,16 @@ class KHandlerThread(threading.Thread):
         #cache.open_interest = depth.open_interest_delta
         #cache.turnover = depth.turnover_delta
 
-    def update_cache(self, *args, depth=None, do_not_update_end_time=False):
+    def update_cache(self, *args, depth=None, dnot_update_end_time=False):
         '''
         未生成K时正常更新缓存
         '''
         code, periods, cur_sec, cur_dt_str, cur_dt = args[0], args[1], args[2], args[3], args[4]
-        assert code in self._kline_cache and GLOBAL_CACHE_KEY in self._kline_cache[code], 'code:{}' % (code)
+        if code not in self._kline_cache or GLOBAL_CACHE_KEY not in self._kline_cache[code]:
+            self._log.error('[update_cache]no cache')
+            return
 
-        if not do_not_update_end_time:
+        if not dnot_update_end_time:
             self._kline_cache[code][GLOBAL_CACHE_KEY].end_dt_str = cur_dt_str
 
         for period in periods:
@@ -967,7 +997,7 @@ class KHandlerThread(threading.Thread):
             else:
                 cache = self._kline_cache[code][period]
                 # end time
-                if not do_not_update_end_time:
+                if not dnot_update_end_time:
                     cache.end_sec = cur_sec
                     cache.end_dt_str = cur_dt_str
                     cache.end_dt = cur_dt
@@ -989,16 +1019,30 @@ class KHandlerThread(threading.Thread):
     def consume(self, cur_depth):
         assert cur_depth is not None
         code = cur_depth.instrument_id
+        code_prefix = self._tth.get_code_prefix(code)
 
-        if code == 'SA305' and cur_depth.update_time == '09:00:00':
+        if not self._closeout_event.isSet():
+            self._closeout_event.set()
+
+        if code == 'sc2207' and cur_depth.update_time == '09:00:00':
             print('')
 
-        if code in self._last_depth and cur_depth.trading_day != self._last_depth[code].trading_day:
-            self._last_depth.pop(code)
-
-        # 判断是否集合竞价
+        # 是否集合竞价
         if self._tth.check_in(2, code, cur_depth.update_time):
             cur_depth.is_call_auction = True
+            self._code_auction_hour[code] = cur_depth.update_time
+
+        # 清空last_depth记录
+        if code_prefix == 'SA':
+            # 只有存在last_depth才需要清空
+            if code in self._last_depth:
+                last_hour = int(self._last_depth[code].update_time[0:2])
+                t_hour = int(cur_depth.update_time[0:2])
+                if (last_hour in [14, 15] and t_hour in [8, 9]) or cur_depth.is_call_auction:
+                    self._last_depth.pop(code)
+        else:
+            if code in self._last_depth and cur_depth.trading_day != self._last_depth[code].trading_day:
+                self._last_depth.pop(code)
 
         # 计算delta并记录last depth
         if code in self._last_depth:
@@ -1019,7 +1063,7 @@ class KHandlerThread(threading.Thread):
         # 核心方法
         self.depth_tick(cur_depth)
 
-        # 记录last depth为当前depth
+        # 记录当前depth
         self._last_depth[code] = cur_depth
 
         if len(self._k_lines) > 0:
@@ -1065,31 +1109,103 @@ class KHandlerThread(threading.Thread):
             pd_cache[item] = cache
         self._kline_cache[code] = pd_cache
 
+def depth_data_iterate(data: 'str'):
+    cur_msg = data.split(',')
+    depth = Depth(cur_msg)
+    code = depth.instrument_id
+    code_prefix = tth.get_code_prefix(code)
+
+    # 非交易时段(成交量)
+    if depth.volume == 0.0:
+        return
+    if not tth.check_in(0, code, depth.update_time) and not tth.check_in(2, code, depth.update_time):
+        return
+
+    if code not in m_code_depth_status:
+        m_code_depth_status[code] = [False, False]
+    if code not in m_code_next_span:
+        m_code_next_span[code] = ''
+
+    # 重复数据过滤
+    if len(m_code_next_span[code]) > 0:
+        d_hour = depth.update_time[0:2]
+        span = m_code_next_span[code].split(',')
+        if ((d_hour < span[1] and d_hour >= span[0]) or (d_hour <= span[1] and d_hour > span[0])) \
+                or ((d_hour < span[3] and d_hour >= span[2]) or (d_hour <= span[3] and d_hour > span[2])):
+            m_code_depth_status[code][0] = True
+            m_code_depth_status[code][1] = False
+        elif (d_hour == span[1] and d_hour == span[0]) \
+                or (d_hour == span[3] and d_hour == span[2]):
+            if m_code_depth_status[code][1]:
+                m_code_depth_status[code][0] = False
+            else:
+                m_code_depth_status[code][0] = True
+        else:
+            m_code_depth_status[code][0] = False
+            m_code_depth_status[code][1] = True
+
+        # 是否跳过
+        if not m_code_depth_status[code][0]:
+            return
+
+    if depth.update_time[0:2] == '00':
+        if tth.check_close_time(code_prefix, CLOSE_TIME6):
+            m_code_next_span[code] = '00,00,08,11'
+        elif tth.check_close_time(code_prefix, CLOSE_TIME7):
+            m_code_next_span[code] = '00,00,01,02'
+    elif depth.update_time[0:2] == '02':
+        m_code_next_span[code] = '02,02,08,11'
+    elif depth.update_time[0:2] == '11':
+        m_code_next_span[code] = '11,11,13,15'
+    elif depth.update_time[0:2] == '15':
+        # 15点之后不过滤
+        m_code_next_span[code] = ''
+    elif depth.update_time[0:2] == '23':
+        if tth.check_close_time(code_prefix, CLOSE_TIME5):
+            m_code_next_span[code] = '23,23,08,11'
+        elif tth.check_close_time(code_prefix, CLOSE_TIME6):
+            m_code_next_span[code] = '23,23,00,00'
+        elif tth.check_close_time(code_prefix, CLOSE_TIME7):
+            m_code_next_span[code] = '23,23,00,02'
+
+    # 计算分桶
+    if code in m_ccode_id:
+        b_offset = m_ccode_id[code]
+    else:
+        b_offset = len(m_ccode_id)
+        m_ccode_id[code] = b_offset
+        print("bucket:", code, b_offset)
+
+    b_id = b_offset % NUM_HANDLER
+    # 广播消息
+    queues[b_id].put(depth, True, HACK_DELAY)
+
 if __name__ == '__main__':
-    #print('program starting...')
+    # 解析参数
     args = parse_args()
     assert args.depth_source
 
-    #global result_file_name
-    result_file_name = args.depth_source.split('/')[-1].split('.')[0]
+    # k线存储位置
+    if args.depth_source in MESSAGE_SOURCE:
+        data_source = 'MQ'
+    else:
+        data_source = args.depth_source.split('/')[-1].split('.')[0]
 
     # 并发处理
     depth_event = threading.Event()
     consumers = []
     for consumerId in range(NUM_HANDLER):
-        consumer = KHandlerThread(consumerId, depth_event, result_file_name)
+        consumer = KHandlerThread(consumerId, depth_event, data_source)
         consumers.append(consumer)
         consumer.start()
     for consumer in consumers:
         consumer.join(HACK_DELAY)
-        
+
     depth_event.set()
     # 记录分桶
     m_ccode_id = {}
     # 时间处理
     tth = TranTimeHelper()
-
-    next_time_span = []
 
     m_code_next_span = {}
     m_code_depth_status = {}
@@ -1098,108 +1214,12 @@ if __name__ == '__main__':
         consumer = KafkaConsumer('FuturesDepthData', auto_offset_reset='earliest', bootstrap_servers= ['localhost:9092'])
         for msg_data in consumer:
             assert len(msg_data) != 0
-            cur_msg = msg_data.split(',')
-            code = cur_msg[1]
-
-            # DEBUG
-            if cur_msg[0] < '20220530':
-                continue
-
-            # 非交易时段(成交量)
-            if cur_msg[3] == '0':
-                continue
-            if tth.check_in(1, code, msg_data[10]):
-                continue
-
-            depth = Depth(cur_msg)
-
-            # 计算分桶
-            if code in m_ccode_id:
-                b_offset = m_ccode_id[code]
-            else:
-                b_offset = len(m_ccode_id)
-                m_ccode_id[code] = b_offset
-
-            b_id = b_offset % NUM_HANDLER
-            # 广播消息
-            queues[b_id].put(depth, True, HACK_DELAY)
+            depth_data_iterate(msg_data)
     else:
         with open(args.depth_source, 'r') as f:
             for line in f.readlines():
                 line = line.strip()
                 assert len(line) != 0
 
-                cur_msg = line.split(',')
-                depth = Depth(cur_msg)
-
-                code = depth.instrument_id
-                code_prefix = tth.get_code_prefix(code)
-                if code not in m_code_depth_status:
-                    m_code_depth_status[code] = [False, False]
-                if code not in m_code_next_span:
-                    m_code_next_span[code] = ''
-
-                # 异常数据过滤
-                if len(m_code_next_span[code]) > 0:
-                    d_hour = depth.update_time[0:2]
-                    span = m_code_next_span[code].split(',')
-                    if ((d_hour < span[1] and d_hour >= span[0]) or (d_hour <= span[1] and d_hour > span[0])) \
-                        or ((d_hour < span[3] and d_hour >= span[2]) or (d_hour <= span[3] and d_hour > span[2])):
-                            m_code_depth_status[code][0] = True
-                            m_code_depth_status[code][1] = False
-                    elif (d_hour == span[1] and d_hour == span[0]) \
-                        or (d_hour == span[3] and d_hour == span[2]):
-                        if m_code_depth_status[code][1]:
-                            m_code_depth_status[code][0] = False
-                        else:
-                            m_code_depth_status[code][0] = True
-                    else:
-                        m_code_depth_status[code][0] = False
-                        m_code_depth_status[code][1] = True
-                    if not m_code_depth_status[code][0]:
-                        continue
-
-                if depth.update_time[0:2] == '00':
-                    if tth.check_close_time(code_prefix, CLOSE_TIME6):
-                        m_code_next_span[code] = '00,00,08,11'
-                    elif tth.check_close_time(code_prefix, CLOSE_TIME7):
-                        m_code_next_span[code] = '00,00,01,02'
-                elif depth.update_time[0:2] == '02':
-                    m_code_next_span[code] = '02,02,08,11'
-                elif depth.update_time[0:2] == '11':
-                    m_code_next_span[code] = '11,11,13,15'
-                elif depth.update_time[0:2] == '15':
-                    m_code_next_span[code] = '15,15,20,23'
-                elif depth.update_time[0:2] == '23':
-                    if tth.check_close_time(code_prefix, CLOSE_TIME5):
-                        m_code_next_span[code] = '23,23,08,11'
-                    elif tth.check_close_time(code_prefix, CLOSE_TIME6):
-                        m_code_next_span[code] = '23,23,00,00'
-                    elif tth.check_close_time(code_prefix, CLOSE_TIME7):
-                        m_code_next_span[code] = '23,23,00,02'
-
-                #if code == 'au2302':
-                #    print(line)
-                #continue
-
-                #if depth.update_time == '13:30:00':
-                #    print('depth time=13:30:00, main thread wait 180s..')
-                #    time.sleep(180)
-
-                # 非交易时段(成交量)
-                if depth.volume == 0.0:
-                    continue
-                if not tth.check_in(0, code, depth.update_time) and not tth.check_in(2, code, depth.update_time):
-                    continue
-
-                # 计算分桶
-                if code in m_ccode_id:
-                    b_offset = m_ccode_id[code]
-                else:
-                    b_offset = len(m_ccode_id)
-                    m_ccode_id[code] = b_offset
-                    print("bucket:", code, b_offset)
-
-                b_id = b_offset % NUM_HANDLER
-                # 广播消息
-                queues[b_id].put(depth, True, HACK_DELAY)
+                depth_data_iterate(line)
+        print('File read ended!!!')

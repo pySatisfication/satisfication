@@ -30,6 +30,7 @@ KTIME_ONE                       = '01:00'
 KTIME_ONE_THIRTY                = '01:30'
 KTIME_TWO                       = '02:00'
 
+TIME_NINE                   = '09:00:00'
 TIME_NINE_THIRTY            = '09:30:00'
 TIME_TEN                    = '10:00:00'
 TIME_TEN_FIFTEEN            = '10:15:00'
