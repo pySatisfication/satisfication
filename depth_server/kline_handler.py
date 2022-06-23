@@ -684,7 +684,7 @@ class KHandlerThread(threading.Thread):
 
         # save kline
         if k_line.open > 0.0 and k_line.high > 0.0 and k_line.low > 0.0 and k_line.close > 0.0:
-            if self._data_source in MESSAGE_SOURCE:
+            if self._data_source == 'mq':
                 self.producer.send(FUTURES_KLINE_TPOIC, k_line.print_line().encode('utf-8'), partition=0)
             else:
                 with open('k_line_{}.csv'.format(self._data_source), 'a') as w:
@@ -1174,7 +1174,7 @@ if __name__ == '__main__':
 
     # k线存储位置
     if args.depth_source in MESSAGE_SOURCE:
-        data_source = 'MQ'
+        data_source = 'mq'
     else:
         data_source = args.depth_source.split('/')[-1].split('.')[0]
 
