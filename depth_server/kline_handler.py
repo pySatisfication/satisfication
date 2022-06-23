@@ -2,6 +2,7 @@ import time
 import sys
 import json
 import logging
+import logging.config
 import threading
 import traceback
 import datetime
@@ -182,11 +183,11 @@ class KHandlerThread(threading.Thread):
         self.producer = KafkaProducer(bootstrap_servers=['localhost:9092'])
 
         # 休市&收盘
+        # 线程同步事件
+        self._closeout_event = threading.Event()
         # 子线程
         self.close_scaner = threading.Thread(target=self.gen_cloing_kline)
         self.close_scaner.start()
-        # 线程同步事件
-        self._closeout_event = threading.Event()
 
     @property
     def k_lines(self):
