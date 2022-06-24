@@ -1025,11 +1025,13 @@ class KHandlerThread(threading.Thread):
                 last_hour = int(self._last_depth[code].update_time[0:2])
                 t_hour = int(cur_depth.update_time[0:2])
                 if (last_hour in [14, 15] and t_hour in [8, 9, 20, 21]) or cur_depth.is_call_auction:
-                    logger.info('[consume]clear last depth, code:{}, update_time:{}'.format(code, cur_depth.update_time))
+                    logger.info('[consume]clear last depth, code:{}, update_time:{}, last_hour:{}, t_hour:{}'.format(
+                        code, last_hour, t_hour, cur_depth.update_time))
                     self._last_depth.pop(code)
         else:
             if code in self._last_depth and cur_depth.trading_day != self._last_depth[code].trading_day:
-                logger.info('[consume]clear last depth, code:{}, update_time:{}'.format(code, cur_depth.update_time))
+                logger.info('[consume]clear last depth, code:{}, trading_day:{}, last_trading_day:{}, update_time:{}'.format(
+                    code, cur_depth.trading_day, self._last_depth[code].trading_day, cur_depth.update_time))
                 self._last_depth.pop(code)
 
         # 计算delta并记录last depth
@@ -1165,7 +1167,7 @@ def depth_data_iterate(data: 'str'):
     else:
         b_offset = len(m_ccode_id)
         m_ccode_id[code] = b_offset
-        print("bucket:", code, b_offset)
+        logger.info("[depth_data_iterate]code:{}, bucket:{}".format(code, b_offset))
 
     b_id = b_offset % NUM_HANDLER
     # 广播消息
