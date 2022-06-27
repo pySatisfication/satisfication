@@ -5,7 +5,7 @@ sys.path.append("..")
 from utils import dt_util
 
 class Depth(object):
-    def __init__(self, msg=None):
+    def __init__(self, msg, sys_time=None):
         if len(msg) >= 34:
             self.trading_day = msg[0]
             self.instrument_id = msg[1]
@@ -71,3 +71,4 @@ class Depth(object):
             self.volume_delta = 0.0
             self.open_interest_delta = 0.0
             self.turnover_delta = 0.0
+        self.sys_time = sys_time

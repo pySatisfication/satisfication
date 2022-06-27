@@ -50,6 +50,7 @@ KEY_K_1D  = 'key_k_1d'
 M_PERIOD_KEY = [KEY_K_15S, KEY_K_30S,
                 KEY_K_1M, KEY_K_3M, KEY_K_5M, KEY_K_15M, KEY_K_30M,
                 KEY_K_1H, KEY_K_2H, KEY_K_1D]
+CZCE_CODES = ['SA','TA','SR','FG','CF','MA']
 
 def parse_args():
     """
@@ -257,7 +258,7 @@ class KHandlerThread(threading.Thread):
                             code,
                             end_dt_str,
                             norm_close_dt_str))
-                        cur_depth = Depth(norm_close_dt_str.split(' ') + [code])
+                        cur_depth = Depth(norm_close_dt_str.split(' ') + [code], time.time())
                         # 使用实际缓存中的最后更新时间，好处是可以处理非正常depth
                         self.depth_tick(cur_depth, close_out=True, mock_end_dt_str=end_dt_str)
 
@@ -283,17 +284,17 @@ class KHandlerThread(threading.Thread):
 
             d_id = 0
             while self._event.isSet():
-                # HACK: Use a timeout when getting the item from the queue
-                # because between `empty()` and `get()` another consumer might
-                # have removed it.
                 try:
                     #d_id += 1
                     #if d_id % 1000 == 0:
                     #    print('consume id: %s, processed: %s' % (self._hid, d_id))
 
+                    # 阻塞等待消息
                     item = queues[self._hid].get()
-                    #print(item.update_time)
+                    # 计时
                     self.consume(item)
+                    end = time.time()
+                    logger.info("[run]code:{}, depth cost:{}".format(item.instrument_id, end - item.sys_time))
                 except Queue.Empty:
                     pass
         except Exception as error:
@@ -554,7 +555,7 @@ class KHandlerThread(threading.Thread):
                 if (t_cur_hour <= 1 and t_cur_hour >= 0) and (t_end_hour == 23):
                     return trading_day + ' ' + KTIME_TWENTYTHREE
                 if (t_cur_hour <= 11 and t_cur_hour >= 8) and (t_end_hour == 22):
-                    if code_prefix == 'SA':
+                    if code_prefix in CZCE_CODES:
                         return last_update_date + ' ' + KTIME_TWENTYTWO
                     return trading_day + ' ' + KTIME_TWENTYTWO
                 # 01:00:00
@@ -633,7 +634,7 @@ class KHandlerThread(threading.Thread):
                     return trading_day + ' ' + KTIME_TWENTYONE
                 # 23:00:00
                 if (t_cur_hour <= 11 and t_cur_hour >= 0) and (t_end_hour < 23 and t_end_hour >= 21):
-                    if code_prefix == 'SA':
+                    if code_prefix in CZCE_CODES:
                         return last_update_date + ' ' + KTIME_TWENTYONE
                     return trading_day + ' ' + KTIME_TWENTYONE
                 # 01:00:00 
@@ -977,10 +978,13 @@ class KHandlerThread(threading.Thread):
         for period in periods:
             if self._kline_cache[code][period] is None:
                 # 休市&收盘之后的正常depth
-                cache = KCache(code, cur_dt_str,
-                    depth.last_price, depth.last_price, depth.last_price, depth.last_price,
-                    depth.volume_delta, depth.open_interest_delta, depth.turnover_delta
-                )
+                if depth.volume_delta > 0.0:
+                    cache = KCache(code, cur_dt_str,
+                        depth.last_price, depth.last_price, depth.last_price, depth.last_price,
+                        depth.volume_delta, depth.open_interest_delta, depth.turnover_delta
+                    )
+                else:
+                    cache = KCache(code, cur_dt_str, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
                 self._kline_cache[code][period] = cache
             else:
                 cache = self._kline_cache[code][period]
@@ -1019,7 +1023,7 @@ class KHandlerThread(threading.Thread):
             self._code_auction_hour[code] = cur_depth.update_time
 
         # 清空last_depth记录
-        if code_prefix == 'SA':
+        if code_prefix in CZCE_CODES:
             # 只有存在last_depth才需要清空
             if code in self._last_depth:
                 last_hour = int(self._last_depth[code].update_time[0:2])
@@ -1102,9 +1106,10 @@ class KHandlerThread(threading.Thread):
             pd_cache[item] = cache
         self._kline_cache[code] = pd_cache
 
-def depth_data_iterate(data: 'str'):
+def depth_data_iterate(data: 'str', sys_time: 'float'):
     cur_msg = data.split(',')
-    depth = Depth(cur_msg)
+
+    depth = Depth(cur_msg, sys_time)
     code = depth.instrument_id
     code_prefix = tth.get_code_prefix(code)
 
@@ -1217,5 +1222,5 @@ if __name__ == '__main__':
                 line = line.strip()
                 assert len(line) != 0
 
-                depth_data_iterate(line)
+                depth_data_iterate(line, time.time())
         print('File read ended!!!')
