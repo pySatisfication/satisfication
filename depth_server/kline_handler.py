@@ -203,9 +203,10 @@ class KHandlerThread(threading.Thread):
                 #now_date = now_dt_str.split(' ')[0]         # 20220522
                 now_time = now_dt_str.split(' ')[1]         # 15:15:00
 
-                mock_time = '11:45:00'
+                mock_time1 = '19:50:00'
+                mock_time2 = '19:53:00'
 
-                if now_time not in [mock_time, TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
+                if now_time not in [mock_time1, mock_time2, TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
                                     TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN,
                                     TIME_TWENTYTHREE_ONE,
                                     TIME_ONE_ONE, TIME_TWO_THIRTYONE]:
@@ -225,10 +226,10 @@ class KHandlerThread(threading.Thread):
                     if now_time == TIME_TEN_SIXTEEN:
                         norm_close_dt_str = cache_date + ' ' + TIME_TEN_FIFTEEN
                         #norm_end_dt_str = cache_date + ' ' + TIME_TEN_SIXTEEN
-                    elif now_time == TIME_ELEVEN_THIRTYONE:
+                    elif now_time == mock_time1:
                         norm_close_dt_str = cache_date + ' ' + TIME_ELEVEN_THIRTY
                         #norm_end_dt_str = cache_date + ' ' + TIME_ELEVEN_THIRTYONE
-                    elif now_time == TIME_FIFTEEN_ONE:
+                    elif now_time == mock_time2:
                         norm_close_dt_str = cache_date + ' ' + TIME_FIFTEEN
                         #norm_end_dt_str = cache_date + ' ' + TIME_FIFTEEN_ONE
                     elif now_time == TIME_FIFTEEN_SIXTEEN:
@@ -240,7 +241,7 @@ class KHandlerThread(threading.Thread):
                     elif now_time == TIME_ONE_ONE:
                         norm_close_dt_str = cache_date + ' ' + TIME_ONE
                         #norm_end_dt_str = cache_date + ' ' + TIME_ONE_ONE
-                    elif now_time == mock_time:
+                    elif now_time == TIME_TWO_THIRTYONE:
                         norm_close_dt_str = cache_date + ' ' + TIME_TWO_THIRTY
                         #norm_end_dt_str = cache_date + ' ' + TIME_TWO_THIRTYONE
 
@@ -251,7 +252,8 @@ class KHandlerThread(threading.Thread):
 
                     if (now_time == TIME_TEN_SIXTEEN and self._tth.check_morning_suspend(code_prefix)) \
                             or now_time == TIME_ELEVEN_THIRTYONE \
-                            or now_time == mock_time \
+                            or now_time == mock_time1 \
+                            or now_time == mock_time2 \
                             or (now_time == TIME_FIFTEEN_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME3)) \
                             or (now_time == TIME_FIFTEEN_SIXTEEN and self._tth.check_close_time(code_prefix, CLOSE_TIME4)) \
                             or (now_time == TIME_TWENTYTHREE_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME5)) \
@@ -264,7 +266,11 @@ class KHandlerThread(threading.Thread):
                         self.depth_tick(cur_depth, close_out=True, mock_end_dt_str=end_dt_str)
 
                     # 手动清空合约全局缓存
-                    self._kline_cache[code][GLOBAL_CACHE_KEY]
+                    if GLOBAL_CACHE_KEY in self._kline_cache[code]:
+                        self._kline_cache[code].pop(GLOBAL_CACHE_KEY)
+                    for p_key, cache in self._kline_cache[code].items():
+                        print(p_key)
+                        print(cache)
 
                     # 收盘需要清空品种对应全部缓存, 其他休市或停盘时间只是处理完一个周期就清空对应周期的缓存
                     if now_time in [TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN]:
@@ -286,19 +292,19 @@ class KHandlerThread(threading.Thread):
         try:
             self._event.wait()
 
-            d_id = 0
+            cnt_id = 0
             while self._event.isSet():
                 try:
-                    #d_id += 1
-                    #if d_id % 1000 == 0:
-                    #    print('consume id: %s, processed: %s' % (self._hid, d_id))
-
                     # 阻塞等待消息
                     item = queues[self._hid].get()
                     # 计时
                     self.consume(item)
                     end = time.time()
-                    logger.info("[run]code:{}, depth cost:{}".format(item.instrument_id, end - item.sys_time))
+
+                    cnt_id += 1
+                    if cnt_id % 1000 == 0:
+                        logger.info("[run]code:{}, bucket_id:{}, cost of depth:{}".format(
+                            item.instrument_id, self._hid, end - item.sys_time))
                 except Queue.Empty:
                     pass
         except Exception as error:
@@ -772,7 +778,7 @@ class KHandlerThread(threading.Thread):
                         k_line = self.gen_kline(code, p_key, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=True)
                         #self.k_lines.append(k_line)
                         # 清空缓存
-                        self._kline_cache[code].pop(p_key)
+                        #self._kline_cache[code].pop(p_key)
                     else:
                         # 休市或收盘时间，不更新缓存end_time
                         self.update_cache(code, [p_key], cur_sec, cur_dt_str, cur_dt, depth=cur_depth, dnot_update_end_time=True)
@@ -786,7 +792,7 @@ class KHandlerThread(threading.Thread):
                             continue
                         k_line = self.gen_kline(code, p_key, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=True)
                         # 清空缓存
-                        self._kline_cache[code].pop(p_key)
+                        #self._kline_cache[code].pop(p_key)
                     else:
                         logger.error('[depth_tick]no k_time at closing out, code:{}, update_time:{}'.format(
                             code, cur_depth.update_time))
@@ -974,8 +980,8 @@ class KHandlerThread(threading.Thread):
         if not dnot_update_end_time:
             self._kline_cache[code][GLOBAL_CACHE_KEY].end_dt_str = cur_dt_str
 
-        for period in periods:
-            if self._kline_cache[code][period] is None:
+        for p_key in periods:
+            if p_key not in self._kline_cache[code]:
                 # 休市&收盘之后的正常depth
                 if depth.volume_delta > 0.0:
                     cache = KCache(code, cur_dt_str,
@@ -984,9 +990,9 @@ class KHandlerThread(threading.Thread):
                     )
                 else:
                     cache = KCache(code, cur_dt_str, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-                self._kline_cache[code][period] = cache
+                self._kline_cache[code][p_key] = cache
             else:
-                cache = self._kline_cache[code][period]
+                cache = self._kline_cache[code][p_key]
                 # end time
                 if not dnot_update_end_time:
                     cache.end_sec = cur_sec
@@ -1069,17 +1075,20 @@ class KHandlerThread(threading.Thread):
         code = init_depth.instrument_id
         cur_dt_str = init_depth.action_dt_str
 
+        if code not in self._kline_cache:
+            self._kline_cache[code] = {}
+
         # global cache
         g_cache = KCache(code, cur_dt_str)
-        self._last_depth[code][GLOBAL_CACHE_KEY] = g_cache
+        self._kline_cache[code][GLOBAL_CACHE_KEY] = g_cache
 
         #start_dt = dt_util.dt_from_str(cur_dt_str)
         for p_key in M_PERIOD_KEY:
             # 缓存中还存在对应周期数据
-            if p_key in self._last_depth[code]:
+            if p_key in self._kline_cache[code]:
                 continue
+            cache = KCache(code, cur_dt_str)
             if init_depth.volume_delta > 0.0:
-                cache = KCache(code, cur_dt_str)
                 cache.open = init_depth.last_price
                 cache.high = init_depth.last_price
                 cache.low = init_depth.last_price
@@ -1091,7 +1100,7 @@ class KHandlerThread(threading.Thread):
                 cache.open, cache.high, cache.low, cache.close = 0.0, 0.0, 0.0, 0.0
                 cache.volume, cache.open_interest, cache.turnover = 0.0, 0.0, 0.0
 
-            self._last_depth[code][p_key] = cache
+            self._kline_cache[code][p_key] = cache
 
 def depth_data_iterate(data: 'str', sys_time: 'float'):
     cur_msg = data.split(',')
@@ -1099,6 +1108,10 @@ def depth_data_iterate(data: 'str', sys_time: 'float'):
     depth = Depth(cur_msg, sys_time)
     code = depth.instrument_id
     code_prefix = tth.get_code_prefix(code)
+
+    if depth.update_time == '13:00:00' and depth.update_millisec == '200':
+        logger.info("update_time == 13:00:00, sleep...")
+        time.sleep(120)
 
     # 非交易时段(成交量)
     if depth.volume == 0.0:
