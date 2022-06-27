@@ -181,7 +181,7 @@ class KHandlerThread(threading.Thread):
         self._code_auction_hour = {}
 
         # 消息队列
-        self.producer = KafkaProducer(bootstrap_servers=['localhost:9092'])
+        #self.producer = KafkaProducer(bootstrap_servers=['localhost:9092'])
 
         # 休市&收盘
         # 线程同步事件
@@ -203,7 +203,9 @@ class KHandlerThread(threading.Thread):
                 #now_date = now_dt_str.split(' ')[0]         # 20220522
                 now_time = now_dt_str.split(' ')[1]         # 15:15:00
 
-                if now_time not in [TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
+                mock_time = '11:45:00'
+
+                if now_time not in [mock_time, TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
                                     TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN,
                                     TIME_TWENTYTHREE_ONE,
                                     TIME_ONE_ONE, TIME_TWO_THIRTYONE]:
@@ -238,7 +240,7 @@ class KHandlerThread(threading.Thread):
                     elif now_time == TIME_ONE_ONE:
                         norm_close_dt_str = cache_date + ' ' + TIME_ONE
                         #norm_end_dt_str = cache_date + ' ' + TIME_ONE_ONE
-                    elif now_time == TIME_TWO_THIRTYONE:
+                    elif now_time == mock_time:
                         norm_close_dt_str = cache_date + ' ' + TIME_TWO_THIRTY
                         #norm_end_dt_str = cache_date + ' ' + TIME_TWO_THIRTYONE
 
@@ -249,6 +251,7 @@ class KHandlerThread(threading.Thread):
 
                     if (now_time == TIME_TEN_SIXTEEN and self._tth.check_morning_suspend(code_prefix)) \
                             or now_time == TIME_ELEVEN_THIRTYONE \
+                            or now_time == mock_time \
                             or (now_time == TIME_FIFTEEN_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME3)) \
                             or (now_time == TIME_FIFTEEN_SIXTEEN and self._tth.check_close_time(code_prefix, CLOSE_TIME4)) \
                             or (now_time == TIME_TWENTYTHREE_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME5)) \
@@ -734,6 +737,9 @@ class KHandlerThread(threading.Thread):
         cur_dt = dt_util.dt_from_str(cur_dt_str)
 
         cur_time = cur_depth.update_time
+
+        #if cur_time == '09:00:00':
+        #    print('')
 
         # 集合竞价
         if cur_depth.is_call_auction \
