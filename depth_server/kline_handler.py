@@ -1221,7 +1221,7 @@ if __name__ == '__main__':
             assert msg_data is not None
             if msg_data is None or len(msg_data.value) == 0:
                 continue
-            depth_data_iterate(msg_data.value.decode('utf-8'))
+            depth_data_iterate(msg_data.value.decode('utf-8'), time.time())
     else:
         with open(args.depth_source, 'r') as f:
             for line in f.readlines():
