@@ -255,12 +255,13 @@ class KHandlerThread(threading.Thread):
                             or (now_time == TIME_ONE_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME6)) \
                             or (now_time == TIME_TWO_THIRTYONE and self._tth.check_close_time(code_prefix, CLOSE_TIME7)):
                         logger.info('[gen_cloing_kline]generate last K, code:{}, end_time:{}, cur_time:{}'.format(
-                            code,
-                            end_dt_str,
-                            norm_close_dt_str))
+                            code, end_dt_str, norm_close_dt_str))
                         cur_depth = Depth(norm_close_dt_str.split(' ') + [code], time.time())
                         # 使用实际缓存中的最后更新时间，好处是可以处理非正常depth
                         self.depth_tick(cur_depth, close_out=True, mock_end_dt_str=end_dt_str)
+
+                    # 手动清空合约全局缓存
+                    self._kline_cache[code][GLOBAL_CACHE_KEY]
 
                     # 收盘需要清空品种对应全部缓存, 其他休市或停盘时间只是处理完一个周期就清空对应周期的缓存
                     if now_time in [TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN]:
@@ -685,7 +686,7 @@ class KHandlerThread(threading.Thread):
                        cache.volume, cache.open_interest, cache.turnover)
 
         # save kline
-        if k_line.open > 0.0 and k_line.high > 0.0 and k_line.low > 0.0 and k_line.close > 0.0:
+        if k_line.open > 0.0 and k_line.high > 0.0 and k_line.low > 0.0 and k_line.close > 0.0 and k_line.volume > 0.0:
             if self._data_source == 'mq':
                 self.producer.send(FUTURES_KLINE_TPOIC, k_line.print_line().encode('utf-8'), partition=0)
             else:
@@ -694,7 +695,7 @@ class KHandlerThread(threading.Thread):
         
         if kwargs['close_out']:
             # 一天收盘
-            self._kline_cache[code][period] = None
+            self._kline_cache[code].pop(period)
         else:
             if code not in self._kline_cache or GLOBAL_CACHE_KEY not in self._kline_cache[code]:
                 logger.error('[update_cache]no cache, code:{}'.format(code))
@@ -717,13 +718,11 @@ class KHandlerThread(threading.Thread):
             end_dt_str = mock_end_dt_str
         else:
             assert code in self._kline_cache
-            g_cache = self._kline_cache[code][GLOBAL_CACHE_KEY]
-            if g_cache is None:
-                logger.error('[depth_tick]global_cache is none, code:{}, update_time:{}, update_millisec:{}'.format(
-                    code,
-                    cur_depth.update_time,
-                    cur_depth.update_millisec))
+            if GLOBAL_CACHE_KEY not in self._kline_cache[code] or self._kline_cache[code][GLOBAL_CACHE_KEY] is None:
+                logger.warning('[depth_tick]global_cache is none, code:{}, update_time:{}, update_millisec:{}'.format(
+                    code, cur_depth.update_time, cur_depth.update_millisec))
                 return
+            g_cache = self._kline_cache[code][GLOBAL_CACHE_KEY]
             end_dt_str = g_cache.end_dt_str
 
         cur_dt_str = cur_depth.action_dt_str
@@ -741,8 +740,7 @@ class KHandlerThread(threading.Thread):
                 and self._last_depth[code].is_call_auction):
             self.update_cache(code, M_PERIOD_KEY, cur_sec, cur_dt_str, cur_dt, depth=cur_depth)
             logger.info('[depth_tick]auction, code:{}, update_time:{}'.format(
-                code,
-                cur_depth.update_time))
+                code, cur_depth.update_time))
             return
 
         # 最后depth
@@ -759,43 +757,38 @@ class KHandlerThread(threading.Thread):
         if is_suspend_times or is_finish_times or close_out:
             if is_suspend_times:
                 for p_key in M_PERIOD_KEY:
-                    if close_out:
-                        k_time = self.get_show_ktime(code_prefix, p_key,
-                                                     cur_depth.trading_day, end_sec, end_min, end_hour, cur_time,
-                                                     end_dt_str, cur_dt_str, end_dt, cur_dt)
-                        if not k_time:
-                            continue
-                        if self._kline_cache[code][p_key] is None:
+                    k_time = self.get_show_ktime(code_prefix, p_key,
+                                                 cur_depth.trading_day, end_sec, end_min, end_hour, cur_time,
+                                                 end_dt_str, cur_dt_str, end_dt, cur_dt)
+                    if k_time:
+                        if p_key not in self._kline_cache[code]:
                             continue
                         k_line = self.gen_kline(code, p_key, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=True)
                         #self.k_lines.append(k_line)
                         # 清空缓存
-                        #self._kline_cache[code][p_key] = None
+                        self._kline_cache[code].pop(p_key)
                     else:
                         # 休市或收盘时间，不更新缓存end_time
                         self.update_cache(code, [p_key], cur_sec, cur_dt_str, cur_dt, depth=cur_depth, dnot_update_end_time=True)
             if is_finish_times:
                 for p_key in M_PERIOD_KEY:
-                    if close_out:
-                        k_time = self.get_show_ktime(code_prefix, p_key,
-                                                     cur_depth.trading_day, end_sec, end_min, end_hour, cur_time,
-                                                     end_dt_str, cur_dt_str, end_dt, cur_dt)
-                        if not k_time:
-                            continue
-                        if self._kline_cache[code][p_key] is None:
+                    k_time = self.get_show_ktime(code_prefix, p_key,
+                                                 cur_depth.trading_day, end_sec, end_min, end_hour, cur_time,
+                                                 end_dt_str, cur_dt_str, end_dt, cur_dt)
+                    if k_time:
+                        if p_key not in self._kline_cache[code]:
                             continue
                         k_line = self.gen_kline(code, p_key, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=True)
-                        #self.k_lines.append(k_line)
+                        # 清空缓存
+                        self._kline_cache[code].pop(p_key)
                     else:
-                        # 休市或收盘时间，不更新缓存中的end_time
-                        self.update_cache(code, [p_key], cur_sec, cur_dt_str, cur_dt, depth=cur_depth, dnot_update_end_time=True)
-                # 清空缓存
-                #self._kline_cache[code] = {}
+                        logger.error('[depth_tick]no k_time at closing out, code:{}, update_time:{}'.format(
+                            code, cur_depth.update_time))
             return
 
         # 15s
         k_time = self.check_out_sec(15, cur_depth.trading_day, end_sec, end_dt, cur_dt)
-        if k_time is not None and self._kline_cache[code][KEY_K_15S]:
+        if k_time is not None and KEY_K_15S in self._kline_cache[code]:
             k_line = self.gen_kline(code, KEY_K_15S, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -804,7 +797,7 @@ class KHandlerThread(threading.Thread):
 
         # 30s 
         k_time = self.check_out_sec(30, cur_depth.trading_day, end_sec, end_dt, cur_dt)
-        if k_time is not None and self._kline_cache[code][KEY_K_30S]:
+        if k_time is not None and KEY_K_30S in self._kline_cache[code]:
             k_line = self.gen_kline(code, KEY_K_30S, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -813,7 +806,7 @@ class KHandlerThread(threading.Thread):
 
         # 1m
         k_time = self.check_out_min(1, cur_depth.trading_day, end_sec, end_min, end_dt, cur_dt)
-        if k_time is not None and self._kline_cache[code][KEY_K_1M]:
+        if k_time is not None and KEY_K_1M in self._kline_cache[code]:
             k_line = self.gen_kline(code, KEY_K_1M, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -822,7 +815,7 @@ class KHandlerThread(threading.Thread):
 
         # 3m
         k_time = self.check_out_min(3, cur_depth.trading_day, end_sec, end_min, end_dt, cur_dt)
-        if k_time is not None and self._kline_cache[code][KEY_K_3M]:
+        if k_time is not None and KEY_K_3M in self._kline_cache[code]:
             k_line = self.gen_kline(code, KEY_K_3M, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -830,7 +823,7 @@ class KHandlerThread(threading.Thread):
 
         # 5m
         k_time = self.check_out_min(5, cur_depth.trading_day, end_sec, end_min, end_dt, cur_dt)
-        if k_time is not None and self._kline_cache[code][KEY_K_5M]:
+        if k_time is not None and KEY_K_5M in self._kline_cache[code]:
             k_line = self.gen_kline(code, KEY_K_5M, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -839,7 +832,7 @@ class KHandlerThread(threading.Thread):
 
         # 15m
         k_time = self.check_out_min(15, cur_depth.trading_day, end_sec, end_min, end_dt, cur_dt)
-        if k_time is not None and self._kline_cache[code][KEY_K_15M]:
+        if k_time is not None and KEY_K_15M in self._kline_cache[code]:
             k_line = self.gen_kline(code, KEY_K_15M, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -862,7 +855,7 @@ class KHandlerThread(threading.Thread):
         if code in self._code_auction_hour and self._code_auction_hour[code] <= TIME_NINE:
             if k_time and k_time.split(' ')[1] < TIME_NINE:
                 k_time = None
-        if k_time is not None and self._kline_cache[code][KEY_K_1H]:
+        if k_time is not None and KEY_K_1H in self._kline_cache[code]:
             k_line = self.gen_kline(code, KEY_K_1H, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -873,7 +866,7 @@ class KHandlerThread(threading.Thread):
         if code in self._code_auction_hour and self._code_auction_hour[code] <= TIME_NINE:
             if k_time and k_time.split(' ')[1] < TIME_NINE:
                 k_time = None
-        if k_time is not None and self._kline_cache[code][KEY_K_2H]:
+        if k_time is not None and KEY_K_2H in self._kline_cache[code]:
             k_line = self.gen_kline(code, KEY_K_2H, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -881,7 +874,7 @@ class KHandlerThread(threading.Thread):
 
         # 1d
         k_time = self.check_out_1d(code_prefix, cur_depth.trading_day, cur_time, end_dt_str, cur_dt_str)
-        if k_time is not None and self._kline_cache[code][KEY_K_1D]:
+        if k_time is not None and KEY_K_1D in self._kline_cache[code]:
             k_line = self.gen_kline(code, KEY_K_1D, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
             #self.k_lines.append(k_line)
         else:
@@ -1049,16 +1042,14 @@ class KHandlerThread(threading.Thread):
             cur_depth.turnover_delta = cur_depth.turnover
 
         # 第一条depth
-        if code not in self._kline_cache or len(self._kline_cache[code]) == 0:
+        if code not in self._kline_cache or GLOBAL_CACHE_KEY not in self._kline_cache[code]:
             logger.info('[consume]first depth, code:{}, update_time:{}'.format(code, cur_depth.update_time))
             if not cur_depth.is_call_auction:
                 logger.warning('[consume]no auction, code:{}, update_time:{}'.format(code, cur_depth.update_time))
             self.init_cache(cur_depth)
-            self._last_depth[code] = cur_depth
-            return
-
-        # 核心方法
-        self.depth_tick(cur_depth)
+        else:
+            # 核心方法
+            self.depth_tick(cur_depth)
 
         # 记录当前depth
         self._last_depth[code] = cur_depth
@@ -1069,42 +1060,32 @@ class KHandlerThread(threading.Thread):
         #        self._k_lines.pop()
 
     def init_cache(self, init_depth):
-        pd_cache = {}
         code = init_depth.instrument_id
-
         cur_dt_str = init_depth.action_dt_str
 
         # global cache
         g_cache = KCache(code, cur_dt_str)
-        pd_cache[GLOBAL_CACHE_KEY] = g_cache
+        self._last_depth[code][GLOBAL_CACHE_KEY] = g_cache
 
         #start_dt = dt_util.dt_from_str(cur_dt_str)
-        for item in M_PERIOD_KEY:
-            cache = KCache(code, cur_dt_str)
+        for p_key in M_PERIOD_KEY:
+            # 缓存中还存在对应周期数据
+            if p_key in self._last_depth[code]:
+                continue
+            if init_depth.volume_delta > 0.0:
+                cache = KCache(code, cur_dt_str)
+                cache.open = init_depth.last_price
+                cache.high = init_depth.last_price
+                cache.low = init_depth.last_price
+                cache.close = init_depth.last_price
+                cache.volume = init_depth.volume_delta
+                cache.open_interest = init_depth.open_interest_delta
+                cache.turnover = init_depth.turnover_delta
+            else:
+                cache.open, cache.high, cache.low, cache.close = 0.0, 0.0, 0.0, 0.0
+                cache.volume, cache.open_interest, cache.turnover = 0.0, 0.0, 0.0
 
-            #if depth.volume_delta > 0.0:
-            #cache.open = depth.last_price
-            #cache.high = depth.last_price
-            #cache.low = depth.last_price
-            #cache.close = depth.last_price
-            #cache.volume = depth.volume_delta
-            #cache.open_interest = depth.open_interest_delta
-            #cache.turnover = depth.turnover_delta
-            #else:
-            #    cache.open, cache.high, cache.low, cache.close = 0.0, 0.0, 0.0, 0.0
-            #   cache.volume, cache.open_interest, cache.turnover = 0.0, 0.0, 0.0
-
-            cache.open = init_depth.last_price
-            cache.high = init_depth.last_price
-            cache.low = init_depth.last_price
-            cache.close = init_depth.last_price
-
-            cache.volume = init_depth.volume
-            cache.open_interest = init_depth.open_interest
-            cache.turnover = init_depth.turnover
-
-            pd_cache[item] = cache
-        self._kline_cache[code] = pd_cache
+            self._last_depth[code][p_key] = cache
 
 def depth_data_iterate(data: 'str', sys_time: 'float'):
     cur_msg = data.split(',')
