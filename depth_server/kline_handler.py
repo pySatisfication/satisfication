@@ -191,7 +191,7 @@ class KHandlerThread(threading.Thread):
         self._code_auction_hour = {}
 
         # 消息队列
-        #self.producer = KafkaProducer(bootstrap_servers=['localhost:9092'])
+        self.producer = KafkaProducer(bootstrap_servers=['localhost:9092'])
 
         # 休市&收盘
         # 线程同步事件
@@ -1216,7 +1216,7 @@ if __name__ == '__main__':
 
     if args.depth_source in MESSAGE_SOURCE:
         print('depth_source is kafka...')
-        consumer = KafkaConsumer(FUTURES_DEPTH_TOPIC, auto_offset_reset='earliest', bootstrap_servers= ['localhost:9092'])
+        consumer = KafkaConsumer(FUTURES_DEPTH_TOPIC, auto_offset_reset='latest', bootstrap_servers= ['localhost:9092'])
         for msg_data in consumer:
             assert msg_data is not None
             if msg_data is None or len(msg_data.value) == 0:
