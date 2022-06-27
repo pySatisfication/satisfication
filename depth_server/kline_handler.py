@@ -213,10 +213,7 @@ class KHandlerThread(threading.Thread):
                 #now_date = now_dt_str.split(' ')[0]         # 20220522
                 now_time = now_dt_str.split(' ')[1]         # 15:15:00
 
-                mock_time1 = '20:13:00'
-                mock_time2 = '20:16:00'
-
-                if now_time not in [mock_time1, mock_time2, TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
+                if now_time not in [TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
                                     TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN,
                                     TIME_TWENTYTHREE_ONE,
                                     TIME_ONE_ONE, TIME_TWO_THIRTYONE]:
@@ -236,10 +233,10 @@ class KHandlerThread(threading.Thread):
                     if now_time == TIME_TEN_SIXTEEN:
                         norm_close_dt_str = cache_date + ' ' + TIME_TEN_FIFTEEN
                         #norm_end_dt_str = cache_date + ' ' + TIME_TEN_SIXTEEN
-                    elif now_time == mock_time1:
+                    elif now_time == TIME_ELEVEN_THIRTYONE:
                         norm_close_dt_str = cache_date + ' ' + TIME_ELEVEN_THIRTY
                         #norm_end_dt_str = cache_date + ' ' + TIME_ELEVEN_THIRTYONE
-                    elif now_time == mock_time2:
+                    elif now_time == TIME_FIFTEEN_ONE:
                         norm_close_dt_str = cache_date + ' ' + TIME_FIFTEEN
                         #norm_end_dt_str = cache_date + ' ' + TIME_FIFTEEN_ONE
                     elif now_time == TIME_FIFTEEN_SIXTEEN:
@@ -1118,9 +1115,9 @@ def depth_data_iterate(data: 'str', sys_time: 'float'):
     code = depth.instrument_id
     code_prefix = tth.get_code_prefix(code)
 
-    if depth.update_time == '13:00:00' and depth.update_millisec == '200':
-        logger.info("update_time == 13:00:00, sleep...")
-        time.sleep(120)
+    #if depth.update_time == '13:00:00' and depth.update_millisec == '200':
+    #    logger.info("update_time == 13:00:00, sleep...")
+    #    time.sleep(120)
 
     # 非交易时段(成交量)
     if depth.volume == 0.0:
