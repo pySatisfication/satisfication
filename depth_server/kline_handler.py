@@ -100,6 +100,16 @@ class KCache(object):
             return "{},{},{},{},{},{},{},{},{},{}".format(
                 self.code, self.open_dt_str, self.end_dt_str)
 
+    def print_line(self):
+        if hasattr(self, 'open'):
+            return "{},{},{},{},{},{},{},{},{},{}".format(
+                self.code, self.open_dt_str, self.end_dt_str,
+                self.open, self.high, self.low, self.close,
+                self._volume, self._open_interest, self._turnover)
+        else:
+            return "{},{},{},{},{},{},{},{},{},{}".format(
+                self.code, self.open_dt_str, self.end_dt_str)
+
     @property
     def volume(self):
         return self._volume
@@ -203,8 +213,8 @@ class KHandlerThread(threading.Thread):
                 #now_date = now_dt_str.split(' ')[0]         # 20220522
                 now_time = now_dt_str.split(' ')[1]         # 15:15:00
 
-                mock_time1 = '19:50:00'
-                mock_time2 = '19:53:00'
+                mock_time1 = '20:13:00'
+                mock_time2 = '20:16:00'
 
                 if now_time not in [mock_time1, mock_time2, TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
                                     TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN,
@@ -245,11 +255,6 @@ class KHandlerThread(threading.Thread):
                         norm_close_dt_str = cache_date + ' ' + TIME_TWO_THIRTY
                         #norm_end_dt_str = cache_date + ' ' + TIME_TWO_THIRTYONE
 
-                    #if now_time == TIME_FIFTEEN_ONE:
-                    #    norm_close_dt_str = cache_date + ' ' + TIME_FIFTEEN
-                    #if (now_time == TIME_FIFTEEN_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME3) and cache.end_dt_str < norm_close_dt_str):
-                    #    or (now_time == TIME_FIFTEEN_SIXTEEN and self._tth.check_close_time(code_prefix, CLOSE_TIME4) and cache.end_dt_str < norm_close_dt_str):
-
                     if (now_time == TIME_TEN_SIXTEEN and self._tth.check_morning_suspend(code_prefix)) \
                             or now_time == TIME_ELEVEN_THIRTYONE \
                             or now_time == mock_time1 \
@@ -268,16 +273,19 @@ class KHandlerThread(threading.Thread):
                     # 手动清空合约全局缓存
                     if GLOBAL_CACHE_KEY in self._kline_cache[code]:
                         self._kline_cache[code].pop(GLOBAL_CACHE_KEY)
+
+                    # 缓存DEBUG
                     for p_key, cache in self._kline_cache[code].items():
-                        print(p_key)
-                        print(cache)
+                        logger.info('[gen_cloing_kline]rest p_key:{}, cache:{}'.format(p_key, cache.print_line()))
 
                     # 收盘需要清空品种对应全部缓存, 其他休市或停盘时间只是处理完一个周期就清空对应周期的缓存
                     if now_time in [TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN]:
                         logger.info('[gen_cloing_kline]clear cache, code:{}, now_time:{}'.format(code, now_time))
                         self._kline_cache[code] = {}
-                        self._last_depth.pop(code)
-                        self._code_auction_hour.pop(code)
+                        if code in self._last_depth:
+                            self._last_depth.pop(code)
+                        if code in self._code_auction_hour:
+                            self._code_auction_hour.pop(code)
                 self._closeout_event.clear()
             logger.info('sleeping, wait closeout event being set...')
 
@@ -703,8 +711,9 @@ class KHandlerThread(threading.Thread):
                     w.write(k_line.print_line() + '\n')
         
         if kwargs['close_out']:
-            # 一天收盘
-            self._kline_cache[code].pop(period)
+            # 当天收盘清空对应缓存
+            if period in self._kline_cache[code]:
+                self._kline_cache[code].pop(period)
         else:
             if code not in self._kline_cache or GLOBAL_CACHE_KEY not in self._kline_cache[code]:
                 logger.error('[update_cache]no cache, code:{}'.format(code))
