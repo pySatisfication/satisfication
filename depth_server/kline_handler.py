@@ -196,6 +196,7 @@ class KHandlerThread(threading.Thread):
         # 休市&收盘
         # 线程同步事件
         self._closeout_event = threading.Event()
+
         # 子线程
         self.close_scaner = threading.Thread(target=self.gen_cloing_kline)
         self.close_scaner.start()
@@ -208,16 +209,19 @@ class KHandlerThread(threading.Thread):
         while True:
             self._closeout_event.wait()
             while self._closeout_event.isSet():
+                time.sleep(1)
                 now_dt = datetime.datetime.now()
                 now_dt_str = dt_util.str_from_dt(now_dt)    # 20220522 15:15:00
                 #now_date = now_dt_str.split(' ')[0]         # 20220522
                 now_time = now_dt_str.split(' ')[1]         # 15:15:00
 
+                if now_time[-2:] == '00':
+                    logger.info('[gen_cloing_kline]now_time:{}', now_time)
+
                 if now_time not in [TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
                                     TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN,
                                     TIME_TWENTYTHREE_ONE,
                                     TIME_ONE_ONE, TIME_TWO_THIRTYONE]:
-                    time.sleep(1)
                     continue
                 for code, caches in self._kline_cache.items():
                     if caches is None or len(caches) == 0:
@@ -254,8 +258,6 @@ class KHandlerThread(threading.Thread):
 
                     if (now_time == TIME_TEN_SIXTEEN and self._tth.check_morning_suspend(code_prefix)) \
                             or now_time == TIME_ELEVEN_THIRTYONE \
-                            or now_time == mock_time1 \
-                            or now_time == mock_time2 \
                             or (now_time == TIME_FIFTEEN_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME3)) \
                             or (now_time == TIME_FIFTEEN_SIXTEEN and self._tth.check_close_time(code_prefix, CLOSE_TIME4)) \
                             or (now_time == TIME_TWENTYTHREE_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME5)) \
@@ -302,14 +304,22 @@ class KHandlerThread(threading.Thread):
                 try:
                     # 阻塞等待消息
                     item = queues[self._hid].get()
-                    # 计时
-                    self.consume(item)
-                    end = time.time()
 
+                    # 有新消息
+                    if not self._closeout_event.isSet():
+                        self._closeout_event.set()
+
+                    # depth计算
+                    self.consume(item)
+
+                    # 计时
+                    end = time.time()
                     cnt_id += 1
                     if cnt_id % 1000 == 0:
                         logger.info("[run]code:{}, bucket_id:{}, cost of depth:{}".format(
                             item.instrument_id, self._hid, end - item.sys_time))
+                    if cnt_id > 10000000:
+                        cnt_id = 0
                 except Queue.Empty:
                     pass
         except Exception as error:
@@ -1024,9 +1034,6 @@ class KHandlerThread(threading.Thread):
         code = cur_depth.instrument_id
         code_prefix = self._tth.get_code_prefix(code)
 
-        if not self._closeout_event.isSet():
-            self._closeout_event.set()
-
         # 集合竞价
         if self._tth.check_in(2, code, cur_depth.update_time):
             logger.info('[consume]auction, code:{}, update_time:{}'.format(code, cur_depth.update_time))
@@ -1059,9 +1066,17 @@ class KHandlerThread(threading.Thread):
             cur_depth.open_interest_delta = cur_depth.open_interest
             cur_depth.turnover_delta = cur_depth.turnover
 
-        # 第一条depth
-        if code not in self._kline_cache or GLOBAL_CACHE_KEY not in self._kline_cache[code]:
-            logger.info('[consume]first depth, code:{}, update_time:{}'.format(code, cur_depth.update_time))
+        # 历史第一条depth, 或者休市、停盘后或第二天的第一条depth
+        his_first_depth = code not in self._kline_cache
+        first_depth = True if not his_first_depth and GLOBAL_CACHE_KEY not in self._kline_cache[code] else False
+        #if code not in self._kline_cache or GLOBAL_CACHE_KEY not in self._kline_cache[code]:
+        if his_first_depth or first_depth:
+            if his_first_depth:
+                logger.info('[consume]first depth, code:{}, update_time:{}'.format(
+                    code, cur_depth.update_time, len(self._kline_cache)))
+            if first_depth:
+                logger.info('[consume]first depth, code:{}, update_time:{}, cache size:{}'.format(
+                    code, cur_depth.update_time, len(self._kline_cache)))
             if not cur_depth.is_call_auction:
                 logger.warning('[consume]no auction, code:{}, update_time:{}'.format(code, cur_depth.update_time))
             self.init_cache(cur_depth)
