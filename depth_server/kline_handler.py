@@ -216,7 +216,7 @@ class KHandlerThread(threading.Thread):
                 now_time = now_dt_str.split(' ')[1]         # 15:15:00
 
                 if now_time[-2:] == '00':
-                    logger.info('[gen_cloing_kline]now_time:{}', now_time)
+                    logger.info('[gen_cloing_kline]now_time:{}'.format(now_time))
 
                 if now_time not in [TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
                                     TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN,
