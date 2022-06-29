@@ -201,6 +201,9 @@ class KHandlerThread(threading.Thread):
         self.close_scaner = threading.Thread(target=self.gen_cloing_kline)
         self.close_scaner.start()
 
+        #if not self._closeout_event.isSet():
+        self._closeout_event.set()
+
     @property
     def k_lines(self):
         return self._k_lines
@@ -305,9 +308,9 @@ class KHandlerThread(threading.Thread):
                     # 阻塞等待消息
                     item = queues[self._hid].get()
 
-                    # 有新消息
-                    if not self._closeout_event.isSet():
-                        self._closeout_event.set()
+                    ## 有新消息
+                    #if not self._closeout_event.isSet():
+                    #    self._closeout_event.set()
 
                     # depth计算
                     self.consume(item)
