@@ -259,6 +259,7 @@ class KHandlerThread(threading.Thread):
                         norm_close_dt_str = cache_date + ' ' + TIME_TWO_THIRTY
                         #norm_end_dt_str = cache_date + ' ' + TIME_TWO_THIRTYONE
 
+                    close_flag = False
                     if (now_time == TIME_TEN_SIXTEEN and self._tth.check_morning_suspend(code_prefix)) \
                             or now_time == TIME_ELEVEN_THIRTYONE \
                             or (now_time == TIME_FIFTEEN_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME3)) \
@@ -266,6 +267,7 @@ class KHandlerThread(threading.Thread):
                             or (now_time == TIME_TWENTYTHREE_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME5)) \
                             or (now_time == TIME_ONE_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME6)) \
                             or (now_time == TIME_TWO_THIRTYONE and self._tth.check_close_time(code_prefix, CLOSE_TIME7)):
+                        close_flag = True
                         logger.info('[gen_cloing_kline]generate last K, code:{}, end_time:{}, cur_time:{}'.format(
                             code, end_dt_str, norm_close_dt_str))
                         cur_depth = Depth(norm_close_dt_str.split(' ') + [code], time.time())
@@ -273,8 +275,9 @@ class KHandlerThread(threading.Thread):
                         self.depth_tick(cur_depth, close_out=True, mock_end_dt_str=end_dt_str)
 
                     # 手动清空合约全局缓存
-                    if GLOBAL_CACHE_KEY in self._kline_cache[code]:
-                        self._kline_cache[code].pop(GLOBAL_CACHE_KEY)
+                    if close_flag:
+                        if GLOBAL_CACHE_KEY in self._kline_cache[code]:
+                            self._kline_cache[code].pop(GLOBAL_CACHE_KEY)
 
                     # 缓存DEBUG
                     for p_key, cache in self._kline_cache[code].items():
@@ -788,33 +791,37 @@ class KHandlerThread(threading.Thread):
         if is_suspend_times or is_finish_times or close_out:
             if is_suspend_times:
                 for p_key in M_PERIOD_KEY:
-                    k_time = self.get_show_ktime(code_prefix, p_key,
-                                                 cur_depth.trading_day, end_sec, end_min, end_hour, cur_time,
-                                                 end_dt_str, cur_dt_str, end_dt, cur_dt)
-                    if k_time:
+                    if close_out:
+                        k_time = self.get_show_ktime(code_prefix, p_key,
+                                                     cur_depth.trading_day, end_sec, end_min, end_hour, cur_time,
+                                                     end_dt_str, cur_dt_str, end_dt, cur_dt)
+                        if not k_time:
+                            continue
                         if p_key not in self._kline_cache[code]:
                             continue
-                        k_line = self.gen_kline(code, p_key, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=True)
-                        #self.k_lines.append(k_line)
-                        # 清空缓存
-                        #self._kline_cache[code].pop(p_key)
+                        k_line = self.gen_kline(code, p_key, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth,
+                                                close_out=True)
                     else:
                         # 休市或收盘时间，不更新缓存end_time
-                        self.update_cache(code, [p_key], cur_sec, cur_dt_str, cur_dt, depth=cur_depth, dnot_update_end_time=True)
+                        self.update_cache(code, [p_key], cur_sec, cur_dt_str, cur_dt, depth=cur_depth,
+                                          dnot_update_end_time=True)
             if is_finish_times:
                 for p_key in M_PERIOD_KEY:
-                    k_time = self.get_show_ktime(code_prefix, p_key,
-                                                 cur_depth.trading_day, end_sec, end_min, end_hour, cur_time,
-                                                 end_dt_str, cur_dt_str, end_dt, cur_dt)
-                    if k_time:
+                    if close_out:
+                        k_time = self.get_show_ktime(code_prefix, p_key,
+                                                     cur_depth.trading_day, end_sec, end_min, end_hour, cur_time,
+                                                     end_dt_str, cur_dt_str, end_dt, cur_dt)
+                        if not k_time:
+                            continue
                         if p_key not in self._kline_cache[code]:
                             continue
-                        k_line = self.gen_kline(code, p_key, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=True)
-                        # 清空缓存
-                        #self._kline_cache[code].pop(p_key)
+                        k_line = self.gen_kline(code, p_key, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth,
+                                                close_out=True)
+                        # self.k_lines.append(k_line)
                     else:
-                        logger.error('[depth_tick]no k_time at closing out, code:{}, update_time:{}'.format(
-                            code, cur_depth.update_time))
+                        # 休市或收盘时间，不更新缓存中的end_time
+                        self.update_cache(code, [p_key], cur_sec, cur_dt_str, cur_dt, depth=cur_depth,
+                                          dnot_update_end_time=True)
             return
 
         # 15s
