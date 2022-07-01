@@ -1052,6 +1052,9 @@ class KHandlerThread(threading.Thread):
             logger.info('[consume]auction, code:{}, update_time:{}'.format(code, cur_depth.update_time))
             cur_depth.is_call_auction = True
             self._code_auction_hour[code] = cur_depth.update_time
+            new_update_time = self._tth.get_nearest_open(code_prefix, cur_depth.update_time)
+            if new_update_time:
+                cur_depth.update_time = new_update_time
 
         # 清空last_depth记录
         if code_prefix in CZCE_CODES:
