@@ -136,6 +136,22 @@ class TranTimeHelper(object):
         return code_prefix in self._code_morning_suspend \
             and self._code_morning_suspend[code_prefix] == '1'
 
+    def get_open_times(self, code_prefix):
+        if code_prefix in self._code_open_times:
+            return self._code_open_times[code_prefix]
+        return []
+
+    def get_nearest_open(self, code_prefix, update_time):
+        if code_prefix not in self._code_open_times:
+            return None
+        times = self._code_open_times[code_prefix]
+        c_hour = int(update_time[0:2])
+        for time in times:
+            t_hour =  int(time[0:2])
+            if abs(t_hour - c_hour) <= 1:
+                return time
+        return None
+
     def get_code_prefix(self, code):
         prefix = ''
         for letr in code:
