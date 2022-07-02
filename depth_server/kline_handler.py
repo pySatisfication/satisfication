@@ -59,6 +59,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='arguments for modular call')
     parser.add_argument('--depth_source', dest='depth_source', help='transaction data file',
                         default='../data/depth_data.csv', type=str)
+    parser.add_argument('--debug', dest='debug', action="store_true", help='debug mode')
     #parser.add_argument('--target_file_name', dest='target_file_post', help='transaction data file',
     #                    default='', type=str)
 
@@ -284,7 +285,8 @@ class KHandlerThread(threading.Thread):
                         logger.info('[gen_cloing_kline]rest p_key:{}, cache:{}'.format(p_key, cache.print_line()))
 
                     # 收盘需要清空品种对应全部缓存, 其他休市或停盘时间只是处理完一个周期就清空对应周期的缓存
-                    if now_time in [TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN]:
+                    if (now_time == TIME_FIFTEEN_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME3)) \
+                       or (now_time == TIME_FIFTEEN_SIXTEEN and self._tth.check_close_time(code_prefix, CLOSE_TIME4)):
                         logger.info('[gen_cloing_kline]clear cache, code:{}, now_time:{}'.format(code, now_time))
                         self._kline_cache[code] = {}
                         if code in self._last_depth:
@@ -1251,8 +1253,9 @@ if __name__ == '__main__':
                 continue
             depth_data_iterate(msg_data.value.decode('utf-8'), time.time())
 
-            with open('depth_debug', 'a') as w:
-                w.write(msg_data.value.decode('utf-8') + '\n')
+            if args.debug:
+                with open('depth_debug', 'a') as w:
+                   w.write(msg_data.value.decode('utf-8') + '\n')
     else:
         with open(args.depth_source, 'r') as f:
             for line in f.readlines():
