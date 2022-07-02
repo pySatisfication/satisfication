@@ -191,7 +191,7 @@ class KHandlerThread(threading.Thread):
         self._code_auction_hour = {}
 
         # 消息队列
-        #self.producer = KafkaProducer(bootstrap_servers=['localhost:9092'])
+        self.producer = KafkaProducer(bootstrap_servers=['localhost:9092'])
 
         # 休市&收盘
         # 线程同步事件
@@ -221,9 +221,7 @@ class KHandlerThread(threading.Thread):
                 if now_time[-2:] == '00':
                     logger.info('[gen_cloing_kline]now_time:{}'.format(now_time))
 
-                mock_time = '19:51:00'
-
-                if now_time not in [mock_time, TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
+                if now_time not in [TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
                                     TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN,
                                     TIME_TWENTYTHREE_ONE,
                                     TIME_ONE_ONE, TIME_TWO_THIRTYONE]:
@@ -245,7 +243,7 @@ class KHandlerThread(threading.Thread):
                     elif now_time == TIME_ELEVEN_THIRTYONE:
                         norm_close_dt_str = cache_date + ' ' + TIME_ELEVEN_THIRTY
                         #norm_end_dt_str = cache_date + ' ' + TIME_ELEVEN_THIRTYONE
-                    elif now_time == mock_time:
+                    elif now_time == TIME_FIFTEEN_ONE:
                         norm_close_dt_str = cache_date + ' ' + TIME_FIFTEEN
                         #norm_end_dt_str = cache_date + ' ' + TIME_FIFTEEN_ONE
                     elif now_time == TIME_FIFTEEN_SIXTEEN:
@@ -264,7 +262,6 @@ class KHandlerThread(threading.Thread):
                     close_flag = False
                     if (now_time == TIME_TEN_SIXTEEN and self._tth.check_morning_suspend(code_prefix)) \
                             or now_time == TIME_ELEVEN_THIRTYONE \
-                            or now_time == mock_time \
                             or (now_time == TIME_FIFTEEN_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME3)) \
                             or (now_time == TIME_FIFTEEN_SIXTEEN and self._tth.check_close_time(code_prefix, CLOSE_TIME4)) \
                             or (now_time == TIME_TWENTYTHREE_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME5)) \
@@ -287,7 +284,7 @@ class KHandlerThread(threading.Thread):
                         logger.info('[gen_cloing_kline]rest p_key:{}, cache:{}'.format(p_key, cache.print_line()))
 
                     # 收盘需要清空品种对应全部缓存, 其他休市或停盘时间只是处理完一个周期就清空对应周期的缓存
-                    if now_time in [mock_time, TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN]:
+                    if now_time in [TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN]:
                         logger.info('[gen_cloing_kline]clear cache, code:{}, now_time:{}'.format(code, now_time))
                         self._kline_cache[code] = {}
                         if code in self._last_depth:
