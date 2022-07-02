@@ -72,3 +72,9 @@ class Depth(object):
             self.open_interest_delta = 0.0
             self.turnover_delta = 0.0
         self.sys_time = sys_time
+
+    def refresh_update_time(self, new_update_time):
+        self.action_dt_str = self.action_day + ' ' + new_update_time
+        self.action_dt = dt_util.dt_from_str(self.action_dt_str)
+        self.trading_dt_str = self.trading_day + ' ' + new_update_time
+

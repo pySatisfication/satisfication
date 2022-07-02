@@ -221,7 +221,7 @@ class KHandlerThread(threading.Thread):
                 if now_time[-2:] == '00':
                     logger.info('[gen_cloing_kline]now_time:{}'.format(now_time))
 
-                mock_time = '19:30:00'
+                mock_time = '19:51:00'
 
                 if now_time not in [mock_time, TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
                                     TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN,
@@ -1054,7 +1054,7 @@ class KHandlerThread(threading.Thread):
             self._code_auction_hour[code] = cur_depth.update_time
             new_update_time = self._tth.get_nearest_open(code_prefix, cur_depth.update_time)
             if new_update_time:
-                cur_depth.update_time = new_update_time
+                cur_depth.refresh_update_time(new_update_time)
 
         # 清空last_depth记录
         if code_prefix in CZCE_CODES:

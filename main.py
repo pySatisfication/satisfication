@@ -5,6 +5,7 @@ import time
 import argparse
 import logging
 from easydict import EasyDict as edict
+from kafka import KafkaConsumer,KafkaProducer
 
 import strategy as stg
 import parallel as px
@@ -43,7 +44,7 @@ def parse_args():
     Parse input arguments
     """
     parser = argparse.ArgumentParser(description='arguments for modular call')
-    parser.add_argument('--trans_data_path', dest='data_path', help='transaction data file',
+    parser.add_argument('--trans_data_path', dest='data_source', help='transaction data source',
                         default='trans_data.txt', type=str)
 
     if len(sys.argv) == 1:
@@ -54,11 +55,11 @@ def parse_args():
     return args
 
 class TransDProducer(px.Producer):
-    def __init__(self, name, fp, itemProducerFailsAt=None):
+    def __init__(self, name, source, itemProducerFailsAt=None):
         assert name
         super(TransDProducer, self).__init__(name)
-        self._file_path = fp
-        self._m_ccode_id = {}
+        self._data_source = source
+        self._m_code_id = {}
 
     def get_pd_type(self, file_path):
         file_name = file_path.split('/')[-1]
@@ -113,56 +114,75 @@ class TransDProducer(px.Producer):
                 self.m_start_bid[k] = bucket - v
 
     def items(self):
-        self.log.info("producing items...")
-        
-        # init start bucketID for each period data
-        self.init_start_bid()
-
-        ct_dirs = futil.get_sub_dirs(self._file_path)
-        all_data = []
-        for ct_dir in ct_dirs:
-            if ct_dir != 'LH2207':
-                continue
-            p_dirs = futil.get_sub_dirs(os.path.join(self._file_path, ct_dir))
-
-            for p_dir in p_dirs:
-                if p_dir not in ('3', '4'):
+        if self._data_source == 'kafka':
+            print('k source is kafka...')
+            consumer = KafkaConsumer(FUTURES_DEPTH_TOPIC, auto_offset_reset='latest',
+                                     bootstrap_servers=['localhost:9092'])
+            for msg_data in consumer:
+                assert msg_data is not None
+                if msg_data is None or len(msg_data.value) == 0:
                     continue
-                # 4:day, 5:hour, 6:minute, 7:second
-                p_files = sorted(futil.get_all_files(os.path.join(self._file_path, ct_dir, p_dir), 'spt'))
-                #print(ct_dir, ', files:', len(p_files))
-                d_cnt = 0
-                for p_file in p_files:
-                    #print('produced file:', p_file)
+                depth = msg_data.value.decode('utf-8')
+                b_id = depth.instrument_id
+                yield b_id, item
+        else:
+            with open(args.depth_source, 'r') as f:
+                for line in f.readlines():
+                    line = line.strip()
+                    assert len(line) != 0
 
-                    pd_type = self.get_pd_type(p_file)
-                    if pd_type not in M_PD_BUCKET:
-                        #print('not in .............:', pd_type)
+                    depth_data_iterate(line, time.time())
+            print('File read ended!!!')
+            self.log.info("producing items...")
+
+            # init start bucketID for each period data
+            self.init_start_bid()
+
+            ct_dirs = futil.get_sub_dirs(self._data_source)
+            all_data = []
+            for ct_dir in ct_dirs:
+                if ct_dir != 'LH2207':
+                    continue
+                p_dirs = futil.get_sub_dirs(os.path.join(self._data_source, ct_dir))
+
+                for p_dir in p_dirs:
+                    if p_dir not in ('3', '4'):
                         continue
+                    # 4:day, 5:hour, 6:minute, 7:second
+                    p_files = sorted(futil.get_all_files(os.path.join(self._data_source, ct_dir, p_dir), 'spt'))
+                    #print(ct_dir, ', files:', len(p_files))
+                    d_cnt = 0
+                    for p_file in p_files:
+                        #print('produced file:', p_file)
 
-                    # buckets num
-                    buckets = M_PD_BUCKET[pd_type]
+                        pd_type = self.get_pd_type(p_file)
+                        if pd_type not in M_PD_BUCKET:
+                            #print('not in .............:', pd_type)
+                            continue
 
-                    if ct_dir in self._m_ccode_id:
-                        b_offset = self._m_ccode_id[ct_dir]
-                    else:
-                        b_offset = len(self._m_ccode_id)
-                        self._m_ccode_id[ct_dir] = b_offset
+                        # buckets num
+                        buckets = M_PD_BUCKET[pd_type]
 
-                    b_id = b_offset % buckets + self.m_start_bid[pd_type]
-                    #print('pd_type: %s, ct: %s, bucket_id: %s, queue size: %s' % (pd_type, ct_dir, b_id, self.workEnv.queues[b_id].qsize()))
+                        if ct_dir in self._m_code_id:
+                            b_offset = self._m_code_id[ct_dir]
+                        else:
+                            b_offset = len(self._m_code_id)
+                            self._m_code_id[ct_dir] = b_offset
 
-                    for item in self.read_offline_data(p_file, pd_type):
-                        d_cnt += 1
-                        if d_cnt % 1000 == 0:
-                            print('read data:', d_cnt) #time.sleep(0.01)
-                        all_data.append((b_id, item))
-        p_cnt = 0
-        for item in all_data:
-            p_cnt += 1
-            if p_cnt % 1000 == 0:
-                print('produced data:', p_cnt)
-            yield b_id, item
+                        b_id = b_offset % buckets + self.m_start_bid[pd_type]
+                        #print('pd_type: %s, ct: %s, bucket_id: %s, queue size: %s' % (pd_type, ct_dir, b_id, self.workEnv.queues[b_id].qsize()))
+
+                        for item in self.read_offline_data(p_file, pd_type):
+                            d_cnt += 1
+                            if d_cnt % 1000 == 0:
+                                print('read data:', d_cnt) #time.sleep(0.01)
+                            all_data.append((b_id, item))
+            p_cnt = 0
+            for item in all_data:
+                p_cnt += 1
+                if p_cnt % 1000 == 0:
+                    print('produced data:', p_cnt)
+                yield b_id, item
 
 class TransDConsumer(px.Consumer):
     def __init__(self, consumer_id):
@@ -187,15 +207,14 @@ if __name__ == '__main__':
     args = parse_args()
     print('Called with args:')
     print(args)
+    assert args.data_source
 
-    assert args.data_path
-
-    input_data_paths = init_data_task(args.data_path)
+    #input_data_paths = init_data_task(args.data_source)
 
     # create producer and consumers
     producers = []
     for producerId in range(_DEFAULT_PRODUCER_NUM):
-        producerToStart = TransDProducer("producer.%d" % producerId, fp=args.data_path)
+        producerToStart = TransDProducer("producer.%d" % producerId, source=args.data_source)
         producers.append(producerToStart)
 
     consumers = []
