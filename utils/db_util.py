@@ -3,7 +3,7 @@ import pymysql
 import sys
 
 sys.path.append("..")
-from kline import KLine
+from depth_server.kline import KLine
 
 # 数据库连接信息
 conn = pymysql.connect(
@@ -27,5 +27,8 @@ def insert_one(k_data):
     conn.commit()
 
 if __name__ == '__main__':
+    kline = KLine('test_code', 'period', '20220601 10:00:00',
+                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    insert_one(kline)
 
 
