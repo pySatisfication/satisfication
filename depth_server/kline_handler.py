@@ -7,6 +7,7 @@ import threading
 import traceback
 import datetime
 import argparse
+import pymysql
 
 sys.path.append("..")
 from utils import dt_util,db_util
@@ -187,6 +188,18 @@ class KHandlerThread(threading.Thread):
         # 持久化队列
         self._db_queue = Queue.Queue(DB_QUEUE_SIZE)
 
+        self.get_conn()
+
+    def get_conn(self):
+        # 数据库连接信息
+        self.conn = pymysql.connect(
+            host='localhost',
+            user='root',
+            passwd='p12345',
+            db='db_qt_0703',
+            port=3306,
+            charset="utf8")
+
     @property
     def k_lines(self):
         return self._k_lines
@@ -195,12 +208,16 @@ class KHandlerThread(threading.Thread):
         while True:
             self._closeout_event.wait()
             while self._closeout_event.isSet():
-                #time.sleep(0.2)
+                time.sleep(0.1)
 
                 # 持久化
                 try:
-                    k_msg = self._db_queue.get(timeout=1)
-                    db_util.insert_one(k_msg)
+                    k_msg = self._db_queue.get(timeout=0.8)
+                    if k_msg:
+                        #logger.info('[gen_cloing_kline]new kline message: {}'.format(k_msg.print_line()))
+                        if not self.conn:
+                            self.get_conn()
+                        db_util.insert_one(self.conn, k_msg)
                 except Exception as e:
                     pass
 
