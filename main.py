@@ -2,10 +2,19 @@
 import os
 import sys
 import time
+import json
+import threading
 import argparse
 import logging
 from easydict import EasyDict as edict
 from kafka import KafkaConsumer,KafkaProducer
+
+if sys.version > '3':
+    import queue as Queue
+else:
+    import Queue
+
+from depth_server.kline import KLine
 
 import strategy as stg
 import parallel as px
@@ -16,6 +25,19 @@ _PRODUCTION_DELAY = 0.05
 _CONSUMPTION_DELAY = 0.05
 _DEFAULT_PRODUCER_NUM = 1
 _DEFAULT_CONSUMER_NUM = 3
+
+FUTURES_KLINE_TPOIC = 'FuturesKLineTest'
+
+HACK_DELAY = 0.2
+NUM_KLINE_HANDLER = 6
+QUEUE_SIZE = 1000000
+queues = [Queue.Queue(QUEUE_SIZE) for i in range(NUM_KLINE_HANDLER)]
+
+# logger
+index_config_file = 'conf/index_logger_config.json'
+with open(index_config_file, 'r', encoding='utf-8') as file:
+    logging.config.dictConfig(json.load(file))
+logger = logging.getLogger("kindex_service")
 
 M_PD_BUCKET = {
     # day
@@ -87,18 +109,17 @@ class TransDProducer(px.Producer):
                     continue
 
                 d_item = edict(m_code = int(items[0]), 
-                                c_code = items[1],
-                                time = items[2],
-                                open = float(items[3]),
-                                high = float(items[4]),
-                                low = float(items[5]),
-                                close = float(items[6]),
-                                volumes = float(items[7]),
-                                holds = float(items[8]),
-                                amounts = float(items[9]),
-                                avg_prices = float(items[10]),
-                                period = pd_type
-                            )
+                               c_code = items[1],
+                               time = items[2],
+                               open = float(items[3]),
+                               high = float(items[4]),
+                               low = float(items[5]),
+                               close = float(items[6]),
+                               volumes = float(items[7]),
+                               holds = float(items[8]),
+                               amounts = float(items[9]),
+                               avg_prices = float(items[10]),
+                               period = pd_type)
                 data.append(d_item)
         return data
 
@@ -184,16 +205,48 @@ class TransDProducer(px.Producer):
                     print('produced data:', p_cnt)
                 yield b_id, item
 
-class TransDConsumer(px.Consumer):
-    def __init__(self, consumer_id):
-        self._consumer_id = consumer_id
-        super(TransDConsumer, self).__init__(consumer_id)
+class TransDConsumer(threading.Thread):
+    def __init__(self, b_id, event, data_source):
+        threading.Thread.__init__(self)
+        self._bid = b_id
+        self._event = event
+        self._data_source = data_source
         self._stg = stg.SimpleStrategy('option_stg_v1')
+
+    def run(self):
+        try:
+            self._event.wait()
+
+            cnt_id = 0
+            while self._event.isSet():
+                try:
+                    # 阻塞等待消息
+                    item = queues[self._hid].get()
+
+                    # depth计算
+                    self.consume(item)
+
+                    # 计时
+                    #end = time.time()
+                    #cnt_id += 1
+                    #if cnt_id % 1000 == 0:
+                    #    logger.info("[run]code:{}, bucket_id:{}, cost of depth:{}".format(
+                    #        item.instrument_id, self._hid, end - item.sys_time))
+                    #if cnt_id > 10000000:
+                    #    cnt_id = 0
+                except Queue.Empty:
+                    pass
+        except Exception as error:
+            logger.warning("cannot continue to consume: %s", error)
+
+            exc_info = sys.exc_info()
+            logger.info("raising notified error: %s %s", exc_info[0], exc_info[1])
+            for filename, linenum, funcname, source in traceback.extract_tb(exc_info[2]):
+                logger.warning("%-23s:%s '%s' in %s", filename, linenum, source, funcname)
 
     def consume(self, item):
         #print('consumer_id: %s, 1 item produced' % (self._consumer_id))
         self._stg.step(item)
-
 
 def init_data_task(root_path):
     ct_dirs = futil.get_sub_dirs(root_path)
@@ -202,6 +255,23 @@ def init_data_task(root_path):
         paths.append(os.path.abspath(os.path.join(root_path, ct_dir)))
     return paths
 
+def kline_step(data, sys_time=None):
+    cur_msg = data.split(',')
+    kline = KLine(cur_msg, sys_time)
+    code = kline.code
+
+    # 计算分桶
+    if code in m_code_id:
+        b_offset = m_code_id[code]
+    else:
+        b_offset = len(m_code_id)
+        m_code_id[code] = b_offset
+        logger.info("[kline_step]code:{}, bucket:{}".format(code, b_offset))
+
+    b_id = b_offset % NUM_KLINE_HANDLER
+    # 广播消息
+    queues[b_id].put(kline, True)
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
     args = parse_args()
@@ -209,7 +279,38 @@ if __name__ == '__main__':
     print(args)
     assert args.data_source
 
+    m_code_id = {}
+
     #input_data_paths = init_data_task(args.data_source)
+
+    # k线数据源
+    if args.k_source == 'kafka':
+        data_source = 'mq'
+    else:
+        data_source = args.depth_source.split('/')[-1].split('.')[0]
+
+    kline_event = threading.Event()
+    consumers = []
+    for consumer_id in range(NUM_KLINE_HANDLER):
+        consumer = TransDConsumer(consumer_id, kline_event, data_source)
+        consumers.append(consumer)
+        consumer.start()
+    for consumer in consumers:
+        consumer.join(HACK_DELAY)
+    kline_event.set()
+
+    if args.depth_source in MESSAGE_SOURCE:
+        print('depth_source is kafka...')
+        consumer = KafkaConsumer(FUTURES_KLINE_TPOIC, auto_offset_reset='latest', bootstrap_servers= ['localhost:9092'])
+        for msg_data in consumer:
+            assert msg_data is not None
+            if msg_data is None or len(msg_data.value) == 0:
+                continue
+            kline_step(msg_data.value.decode('utf-8'), time.time())
+
+            if args.debug:
+                with open('depth_debug', 'a') as w:
+                    w.write(msg_data.value.decode('utf-8') + '\n')
 
     # create producer and consumers
     producers = []

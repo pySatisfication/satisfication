@@ -9,8 +9,9 @@ import datetime
 import argparse
 
 sys.path.append("..")
-from utils import dt_util
+from utils import dt_util,db_util
 from depth import Depth
+from kline import KLine
 from tran_time_helper import *
 
 if sys.version > '3':
@@ -27,10 +28,14 @@ with open(config_file, 'r', encoding='utf-8') as file:
     logging.config.dictConfig(json.load(file))
 logger = logging.getLogger("worker")
 
-MESSAGE_SOURCE = ['kafka','redis','rabbitmq']
+MQ_KEYS = ['kafka','redis','rabbitmq']
+MQ_KAFKA = 'kafka'
+KAFKA_SERVER = 'localhost:9092'
+
 HACK_DELAY = 0.02
-NUM_HANDLER = 10
+NUM_HANDLER = 6
 QUEUE_SIZE = 1000000
+DB_QUEUE_SIZE = 100000
 queues = [Queue.Queue(QUEUE_SIZE) for i in range(NUM_HANDLER)]
 
 FUTURES_DEPTH_TOPIC = 'FuturesDepthData'
@@ -94,8 +99,8 @@ class KCache(object):
     def __repr__(self):
         if hasattr(self, 'open'):
             return "{},{},{},{},{},{},{},{},{},{}".format(
-                self.code, self.open_dt_str, self.end_dt_str, 
-                self.open, self.high, self.low, self.close, 
+                self.code, self.open_dt_str, self.end_dt_str,
+                self.open, self.high, self.low, self.close,
                 self._volume, self._open_interest, self._turnover)
         else:
             return "{},{},{},{},{},{},{},{},{},{}".format(
@@ -135,33 +140,6 @@ class KCache(object):
     def turnover(self, value):
         self._turnover = value
 
-class KLine(object):
-    def __init__(self, code, period, date_time, 
-            open_price, high_price, low_price, close_price, 
-            volume, open_interest, turnover):
-        self.code = code
-        self.period_type = period
-        self.k_time = date_time
-        self.open = open_price
-        self.high = high_price
-        self.low = low_price
-        self.close = close_price
-        self.volume = volume
-        self.open_interest = open_interest
-        self.turnover = turnover
-
-    def __repr__(self):
-        return "{},{},{},{},{},{},{},{},{},{}".format(
-            self.code, self.period_type, self.k_time, 
-            self.open, self.high, self.low, self.close, 
-            self.volume, self.open_interest, self.turnover)
-
-    def print_line(self):
-        return "{},{},{},{},{},{},{},{},{},{}".format(
-            self.code, self.period_type, self.k_time, 
-            self.open, self.high, self.low, self.close, 
-            self.volume, self.open_interest, self.turnover)
-
 class KHandlerThread(threading.Thread):
     """
     Thread that can be canceled using `cancel()`.
@@ -192,7 +170,8 @@ class KHandlerThread(threading.Thread):
         self._code_auction_hour = {}
 
         # 消息队列
-        self.producer = KafkaProducer(bootstrap_servers=['localhost:9092'])
+        if self._data_source == MQ_KAFKA:
+            self.producer = KafkaProducer(bootstrap_servers=[KAFKA_SERVER])
 
         # 休市&收盘
         # 线程同步事件
@@ -205,6 +184,9 @@ class KHandlerThread(threading.Thread):
         #if not self._closeout_event.isSet():
         self._closeout_event.set()
 
+        # 持久化队列
+        self._db_queue = Queue.Queue(DB_QUEUE_SIZE)
+
     @property
     def k_lines(self):
         return self._k_lines
@@ -213,7 +195,15 @@ class KHandlerThread(threading.Thread):
         while True:
             self._closeout_event.wait()
             while self._closeout_event.isSet():
-                time.sleep(1)
+                #time.sleep(0.2)
+
+                # 持久化
+                try:
+                    k_msg = self._db_queue.get(timeout=1)
+                    db_util.insert_one(k_msg)
+                except Exception as e:
+                    pass
+
                 now_dt = datetime.datetime.now()
                 now_dt_str = dt_util.str_from_dt(now_dt)    # 20220522 15:15:00
                 #now_date = now_dt_str.split(' ')[0]         # 20220522
@@ -222,18 +212,28 @@ class KHandlerThread(threading.Thread):
                 if now_time[-2:] == '00':
                     logger.info('[gen_cloing_kline]now_time:{}'.format(now_time))
 
-                if now_time not in [TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
-                                    TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN,
-                                    TIME_TWENTYTHREE_ONE,
-                                    TIME_ONE_ONE, TIME_TWO_THIRTYONE]:
+                mock_time = '11:54:00'
+
+                suspend_close_times = [TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
+                                       TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN,
+                                       TIME_TWENTYTHREE_ONE,
+                                       TIME_ONE_ONE, TIME_TWO_THIRTYONE]
+                if self._data_source != MQ_KAFKA:
+                    suspend_close_times.append(mock_time)
+
+                if now_time not in suspend_close_times:
                     continue
                 for code, caches in self._kline_cache.items():
                     if caches is None or len(caches) == 0:
                         continue
                     code_prefix = self._tth.get_code_prefix(code)
                     # global cache
+                    if GLOBAL_CACHE_KEY not in self._kline_cache[code]:
+                        logger.info('[gen_cloing_kline]no global cache, code:{}'.format(code))
+                        continue
                     g_cache = self._kline_cache[code][GLOBAL_CACHE_KEY]
 
+                    # 使用实际缓存中的最后更新时间，好处是可以处理非正常depth
                     end_dt_str = g_cache.end_dt_str
                     cache_date = end_dt_str.split(' ')[0]
 
@@ -260,40 +260,49 @@ class KHandlerThread(threading.Thread):
                         norm_close_dt_str = cache_date + ' ' + TIME_TWO_THIRTY
                         #norm_end_dt_str = cache_date + ' ' + TIME_TWO_THIRTYONE
 
-                    close_flag = False
-                    if (now_time == TIME_TEN_SIXTEEN and self._tth.check_morning_suspend(code_prefix)) \
+                    # 本地测试逻辑
+                    if self._data_source != MQ_KAFKA:
+                        # 默认测试15:00:00的收盘逻辑
+                        norm_close_dt_str = cache_date + ' ' + TIME_FIFTEEN
+                        local_flag = True
+                    else:
+                        local_flag = False
+
+                    suspend_flag = (now_time == TIME_TEN_SIXTEEN and self._tth.check_morning_suspend(code_prefix)) \
                             or now_time == TIME_ELEVEN_THIRTYONE \
-                            or (now_time == TIME_FIFTEEN_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME3)) \
-                            or (now_time == TIME_FIFTEEN_SIXTEEN and self._tth.check_close_time(code_prefix, CLOSE_TIME4)) \
                             or (now_time == TIME_TWENTYTHREE_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME5)) \
                             or (now_time == TIME_ONE_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME6)) \
-                            or (now_time == TIME_TWO_THIRTYONE and self._tth.check_close_time(code_prefix, CLOSE_TIME7)):
-                        close_flag = True
-                        logger.info('[gen_cloing_kline]generate last K, code:{}, end_time:{}, cur_time:{}'.format(
-                            code, end_dt_str, norm_close_dt_str))
-                        cur_depth = Depth(norm_close_dt_str.split(' ') + [code], time.time())
-                        # 使用实际缓存中的最后更新时间，好处是可以处理非正常depth
-                        self.depth_tick(cur_depth, close_out=True, mock_end_dt_str=end_dt_str)
+                            or (now_time == TIME_TWO_THIRTYONE and self._tth.check_close_time(code_prefix, CLOSE_TIME7))
+                    close_flag = (now_time == TIME_FIFTEEN_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME3)) \
+                            or (now_time == TIME_FIFTEEN_SIXTEEN and self._tth.check_close_time(code_prefix, CLOSE_TIME4))
+
+                    if not (suspend_flag or close_flag or local_flag):
+                        continue
+
+                    logger.info('[gen_cloing_kline]generate last K, code:{}, end_time:{}, cur_time:{}'.format(
+                        code, end_dt_str, norm_close_dt_str))
+                    cur_depth = Depth(norm_close_dt_str.split(' ') + [code], time.time())
+                    self.depth_tick(cur_depth, close_out=True, mock_end_dt_str=end_dt_str)
 
                     # 手动清空合约全局缓存
-                    if close_flag:
-                        if GLOBAL_CACHE_KEY in self._kline_cache[code]:
-                            self._kline_cache[code].pop(GLOBAL_CACHE_KEY)
+                    if GLOBAL_CACHE_KEY in self._kline_cache[code]:
+                        self._kline_cache[code].pop(GLOBAL_CACHE_KEY)
 
                     # 缓存DEBUG
                     for p_key, cache in self._kline_cache[code].items():
                         logger.info('[gen_cloing_kline]rest p_key:{}, cache:{}'.format(p_key, cache.print_line()))
 
                     # 收盘需要清空品种对应全部缓存, 其他休市或停盘时间只是处理完一个周期就清空对应周期的缓存
-                    if (now_time == TIME_FIFTEEN_ONE and self._tth.check_close_time(code_prefix, CLOSE_TIME3)) \
-                       or (now_time == TIME_FIFTEEN_SIXTEEN and self._tth.check_close_time(code_prefix, CLOSE_TIME4)):
+                    if close_flag:
                         logger.info('[gen_cloing_kline]clear cache, code:{}, now_time:{}'.format(code, now_time))
                         self._kline_cache[code] = {}
                         if code in self._last_depth:
                             self._last_depth.pop(code)
                         if code in self._code_auction_hour:
                             self._code_auction_hour.pop(code)
-                self._closeout_event.clear()
+                # 正式收盘
+                if now_time == TIME_FIFTEEN_SIXTEEN:
+                    self._closeout_event.clear()
             logger.info('sleeping, wait closeout event being set...')
 
     def cancel(self):
@@ -372,7 +381,7 @@ class KHandlerThread(threading.Thread):
             else:
               return tmp_dt_str
         return None
-            
+
     def check_out_30m(self, code_prefix, trading_day, cur_time, end_dt_str, cur_dt_str):
         last_update_time = end_dt_str.split(' ')[1]
 
@@ -406,7 +415,7 @@ class KHandlerThread(threading.Thread):
                 if cur_time >= TIME_FOURTEEN_FIFTEEN and last_update_time < TIME_FOURTEEN_FIFTEEN:
                     return trading_day + ' ' + KTIME_THIRTEEN_FORTYFIVE
                 # 14:45:00
-                if cur_time >= TIME_FOURTEEN_FORTYFIVE and last_update_time < TIME_FOURTEEN_FORTYFIVE: 
+                if cur_time >= TIME_FOURTEEN_FORTYFIVE and last_update_time < TIME_FOURTEEN_FORTYFIVE:
                     return trading_day + ' ' + KTIME_FOURTEEN_FIFTEEN
                 # 15:00:00
                 if cur_time >= TIME_FIFTEEN and last_update_time < TIME_FIFTEEN:
@@ -713,18 +722,29 @@ class KHandlerThread(threading.Thread):
             for k, v in self._kline_cache[code].items():
                 print(k, v is None)
 
-        k_line = KLine(code, period, k_time,
+        k_line = KLine([code, period, k_time,
                        cache.open, cache.high, cache.low, cache.close,
-                       cache.volume, cache.open_interest, cache.turnover)
+                       cache.volume, cache.open_interest, cache.turnover])
 
         # save kline
         if k_line.open > 0.0 and k_line.high > 0.0 and k_line.low > 0.0 and k_line.close > 0.0 and k_line.volume > 0.0:
-            if self._data_source == 'mq':
-                self.producer.send(FUTURES_KLINE_TPOIC, k_line.print_line().encode('utf-8'), partition=0)
+            if self._data_source == MQ_KAFKA:
+                # kafka
+                future = self.producer.send(FUTURES_KLINE_TPOIC,
+                                            k_line.print_line().encode('utf-8'),
+                                            partition=self._hid)
+                try:
+                   future.get(timeout=5)
+                except Exception as e:
+                   logger.error('[gen_kline]send kline message error:', e)
+                   traceback.format_exc()
+
+                # mysql
+                self._db_queue.put(k_line)
             else:
                 with open('k_line_{}.csv'.format(self._data_source), 'a') as w:
                     w.write(k_line.print_line() + '\n')
-        
+
         if kwargs['close_out']:
             # 当天收盘清空对应缓存
             if period in self._kline_cache[code]:
@@ -882,7 +902,7 @@ class KHandlerThread(threading.Thread):
         # 30m
         k_time = self.check_out_30m(code_prefix, cur_depth.trading_day, cur_time, end_dt_str, cur_dt_str)
         if code in self._code_auction_hour and self._code_auction_hour[code] <= TIME_NINE:
-            if k_time and k_time.split(' ')[1] < TIME_NINE:
+            if k_time and k_time.split(' ')[1] < KTIME_NINE:
                 k_time = None
         if k_time is not None and self._kline_cache[code][KEY_K_30M]:
             k_line = self.gen_kline(code, KEY_K_30M, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
@@ -893,7 +913,7 @@ class KHandlerThread(threading.Thread):
         # 1h
         k_time = self.check_out_1h(code_prefix, cur_depth.trading_day, cur_time, end_dt_str, cur_dt_str)
         if code in self._code_auction_hour and self._code_auction_hour[code] <= TIME_NINE:
-            if k_time and k_time.split(' ')[1] < TIME_NINE:
+            if k_time and k_time.split(' ')[1] < KTIME_NINE:
                 k_time = None
         if k_time is not None and KEY_K_1H in self._kline_cache[code]:
             k_line = self.gen_kline(code, KEY_K_1H, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
@@ -904,7 +924,7 @@ class KHandlerThread(threading.Thread):
         # 2h
         k_time = self.check_out_2h(code_prefix, cur_depth.trading_day, cur_time, end_dt_str, cur_dt_str)
         if code in self._code_auction_hour and self._code_auction_hour[code] <= TIME_NINE:
-            if k_time and k_time.split(' ')[1] < TIME_NINE:
+            if k_time and k_time.split(' ')[1] < KTIME_NINE:
                 k_time = None
         if k_time is not None and KEY_K_2H in self._kline_cache[code]:
             k_line = self.gen_kline(code, KEY_K_2H, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)
@@ -1045,6 +1065,9 @@ class KHandlerThread(threading.Thread):
         assert cur_depth is not None
         code = cur_depth.instrument_id
         code_prefix = self._tth.get_code_prefix(code)
+
+        if cur_depth.update_time == '10:00:00':
+            print('')
 
         # 集合竞价
         if self._tth.check_in(2, code, cur_depth.update_time):
@@ -1212,7 +1235,7 @@ def depth_data_iterate(data: 'str', sys_time: 'float'):
 
     b_id = b_offset % NUM_HANDLER
     # 广播消息
-    queues[b_id].put(depth, True, HACK_DELAY)
+    queues[b_id].put(depth, True)
 
 if __name__ == '__main__':
     # 解析参数
@@ -1220,8 +1243,8 @@ if __name__ == '__main__':
     assert args.depth_source
 
     # k线存储位置
-    if args.depth_source in MESSAGE_SOURCE:
-        data_source = 'mq'
+    if args.depth_source == MQ_KAFKA:
+        data_source = MQ_KAFKA
     else:
         data_source = args.depth_source.split('/')[-1].split('.')[0]
 
@@ -1244,7 +1267,7 @@ if __name__ == '__main__':
     m_code_next_span = {}
     m_code_depth_status = {}
 
-    if args.depth_source in MESSAGE_SOURCE:
+    if args.depth_source in MQ_KEYS:
         print('depth_source is kafka...')
         consumer = KafkaConsumer(FUTURES_DEPTH_TOPIC, auto_offset_reset='latest', bootstrap_servers= ['localhost:9092'])
         for msg_data in consumer:

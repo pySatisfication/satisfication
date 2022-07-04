@@ -5,6 +5,7 @@ import threading
 import logging
 import contract as ct
 import utils.redis_ts_util as rtu
+from easydict import EasyDict as edict
 
 class ContractFactory(object):
     def __init__(self):
@@ -40,8 +41,8 @@ class SimpleStrategy(BaseStrategy):
     def step(self, *args, **kwargs):
         self._ct_lock.acquire()
         data = args[0]
-        c_code = data.c_code
-        period = data.period
+        c_code = data.code
+        period = data.period_type
 
         #self.log.info(u"consume item: %s", item.time)
         if c_code in self._ct_data:
@@ -54,9 +55,22 @@ class SimpleStrategy(BaseStrategy):
             item = ContractFactory.c_creator(c_code)
             self._ct_data[c_code] = {period : item}
 
+        d_item = edict(m_code=0,
+                       c_code=data.code,
+                       time=data.k_time,
+                       open=float(data.open),
+                       high=float(data.high),
+                       low=float(data.low),
+                       close=float(data.close),
+                       volumes=float(data.volume),
+                       holds=0.0,
+                       amounts=0.0,
+                       avg_prices=0.0,
+                       period=data.period_type)
+
         # step 1. update transaction data and base indicators
         #print(self._ct_data)
-        j_idx_str = item.iterate(data)
+        j_idx_str = item.iterate(d_item)
         item.make_judge()
         #try:
         #    # save in time-series for current step
