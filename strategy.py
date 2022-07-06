@@ -13,10 +13,11 @@ class ContractFactory(object):
 
     @classmethod
     def c_creator(cls, m_code):
-        if m_code.startswith('LH'):
-            return ct.Option(m_code)
-        else:
-            pass
+        return ct.Option(m_code)
+        #if m_code.startswith('LH'):
+        #    return ct.Option(m_code)
+        #else:
+        #    pass
 
 class BaseStrategy(object):
     def __init__(self, stg_name):
@@ -39,7 +40,7 @@ class SimpleStrategy(BaseStrategy):
         self._ct_data = {}
 
     def step(self, *args, **kwargs):
-        self._ct_lock.acquire()
+        #self._ct_lock.acquire()
         data = args[0]
         c_code = data.code
         period = data.period_type
@@ -53,6 +54,7 @@ class SimpleStrategy(BaseStrategy):
                 self._ct_data[c_code][period] = item
         else:
             item = ContractFactory.c_creator(c_code)
+            #logger.info('[strategy]new contract: {}'.format(c_code))
             self._ct_data[c_code] = {period : item}
 
         d_item = edict(m_code=0,
@@ -110,7 +112,9 @@ class SimpleStrategy(BaseStrategy):
             print(e)
         '''
 
-        self._ct_lock.release()
+        #self._ct_lock.release()
+
+        return j_idx_str
 
     def stg_boll_check(self, obj):
         return obj.check_boll()

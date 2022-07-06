@@ -5,7 +5,9 @@ import time
 import json
 import threading
 import argparse
+import traceback
 import logging
+import logging.config
 from easydict import EasyDict as edict
 from kafka import KafkaConsumer,KafkaProducer
 
@@ -28,9 +30,14 @@ _DEFAULT_CONSUMER_NUM = 3
 
 FUTURES_KLINE_TPOIC = 'FuturesKLineTest'
 
+MQ_KAFKA = 'kafka'
+MQ_GROUP_ID = 'kindex_c1'
+KAFKA_SERVER = 'localhost:9092'
+KAFKA_OFFSET = 'earliest'
+
 HACK_DELAY = 0.2
 NUM_KLINE_HANDLER = 6
-QUEUE_SIZE = 1000000
+QUEUE_SIZE = 500000
 queues = [Queue.Queue(QUEUE_SIZE) for i in range(NUM_KLINE_HANDLER)]
 
 # logger
@@ -66,7 +73,7 @@ def parse_args():
     Parse input arguments
     """
     parser = argparse.ArgumentParser(description='arguments for modular call')
-    parser.add_argument('--trans_data_path', dest='data_source', help='transaction data source',
+    parser.add_argument('--data_source', dest='data_source', help='transaction data source',
                         default='trans_data.txt', type=str)
 
     if len(sys.argv) == 1:
@@ -215,16 +222,39 @@ class TransDConsumer(threading.Thread):
 
     def run(self):
         try:
+            print('consumer waiting...:', self._bid)
             self._event.wait()
 
             cnt_id = 0
             while self._event.isSet():
+                print('consumer starting...:', self._bid)
                 try:
-                    # 阻塞等待消息
-                    item = queues[self._hid].get()
+                    consumer = KafkaConsumer(FUTURES_KLINE_TPOIC,
+                                             auto_offset_reset=KAFKA_OFFSET,
+                                             group_id=MQ_GROUP_ID,
+                                             session_timeout_ms=30000,
+                                             bootstrap_servers= [KAFKA_SERVER])
+                    for msg_data in consumer:
+                        if msg_data is None or len(msg_data.value) == 0:
+                            continue
+                        k_data = msg_data.value.decode('utf-8').split(',')
+                        if len(k_data) < 10:
+                            logger.error('[run]data length error: {}'.format(k_data))
+                            continue
+                        kline = KLine(k_data, time.time())
+                        self.consume(kline)
+
+                        cnt_id += 1
+                        if cnt_id > 1000000:
+                            cnt_id -= 1000000
+                        if cnt_id % 100 == 0:
+                            logger.info('[run]consumer: {}, processed: {}'.format(self._bid, cnt_id))
+
+                    ## 阻塞等待消息
+                    #item = queues[self._hid].get()
 
                     # depth计算
-                    self.consume(item)
+                    #self.consume(item)
 
                     # 计时
                     #end = time.time()
@@ -238,15 +268,14 @@ class TransDConsumer(threading.Thread):
                     pass
         except Exception as error:
             logger.warning("cannot continue to consume: %s", error)
-
             exc_info = sys.exc_info()
-            logger.info("raising notified error: %s %s", exc_info[0], exc_info[1])
+            logger.error("raising notified error: %s %s", exc_info[0], exc_info[1])
             for filename, linenum, funcname, source in traceback.extract_tb(exc_info[2]):
                 logger.warning("%-23s:%s '%s' in %s", filename, linenum, source, funcname)
 
     def consume(self, item):
-        #print('consumer_id: %s, 1 item produced' % (self._consumer_id))
-        self._stg.step(item)
+        j_idx_str = self._stg.step(item)
+        #logger.info("[consume]index step: {}".format(j_idx_str))
 
 def init_data_task(root_path):
     ct_dirs = futil.get_sub_dirs(root_path)
@@ -284,47 +313,49 @@ if __name__ == '__main__':
     #input_data_paths = init_data_task(args.data_source)
 
     # k线数据源
-    if args.k_source == 'kafka':
-        data_source = 'mq'
+    if args.data_source == MQ_KAFKA:
+        data_source = MQ_KAFKA
     else:
         data_source = args.depth_source.split('/')[-1].split('.')[0]
 
-    kline_event = threading.Event()
+    kindex_event = threading.Event()
     consumers = []
     for consumer_id in range(NUM_KLINE_HANDLER):
-        consumer = TransDConsumer(consumer_id, kline_event, data_source)
+        consumer = TransDConsumer(consumer_id, kindex_event, data_source)
         consumers.append(consumer)
         consumer.start()
     for consumer in consumers:
         consumer.join(HACK_DELAY)
-    kline_event.set()
+    kindex_event.set()
 
-    if args.depth_source in MESSAGE_SOURCE:
-        print('depth_source is kafka...')
-        consumer = KafkaConsumer(FUTURES_KLINE_TPOIC, auto_offset_reset='latest', bootstrap_servers= ['localhost:9092'])
-        for msg_data in consumer:
-            assert msg_data is not None
-            if msg_data is None or len(msg_data.value) == 0:
-                continue
-            kline_step(msg_data.value.decode('utf-8'), time.time())
+    #if args.data_source == MQ_KAFKA:
+    #    print('depth_source is kafka...')
+    #    consumer = KafkaConsumer(FUTURES_KLINE_TPOIC, auto_offset_reset='latest', group_id='kindex_c1', bootstrap_servers= ['localhost:9092'])
+    #    for msg_data in consumer:
+    #        assert msg_data is not None
+    #        if msg_data is None or len(msg_data.value) == 0:
+    #            continue
+    #        kline_step(msg_data.value.decode('utf-8'), time.time())
 
-            if args.debug:
-                with open('depth_debug', 'a') as w:
-                    w.write(msg_data.value.decode('utf-8') + '\n')
+    #        #if args.debug:
+    #        #    with open('depth_debug', 'a') as w:
+    #        #        w.write(msg_data.value.decode('utf-8') + '\n')
+    #else:
+    #    pass
 
-    # create producer and consumers
-    producers = []
-    for producerId in range(_DEFAULT_PRODUCER_NUM):
-        producerToStart = TransDProducer("producer.%d" % producerId, source=args.data_source)
-        producers.append(producerToStart)
+    ## create producer and consumers
+    #producers = []
+    #for producerId in range(_DEFAULT_PRODUCER_NUM):
+    #    producerToStart = TransDProducer("producer.%d" % producerId, source=args.data_source)
+    #    producers.append(producerToStart)
 
-    consumers = []
-    for consumerId in range(sum(M_PD_BUCKET.values())):
-        consumerToStart = TransDConsumer(consumerId)
-        consumers.append(consumerToStart)
+    #consumers = []
+    #for consumerId in range(sum(M_PD_BUCKET.values())):
+    #    consumerToStart = TransDConsumer(consumerId)
+    #    consumers.append(consumerToStart)
 
-    worker = px.Worker(producers, consumers, 300000)
-    worker.work()
+    #worker = px.Worker(producers, consumers, 300000)
+    #worker.work()
 
     #print()
     #print('============EMA(N=12)==============') 

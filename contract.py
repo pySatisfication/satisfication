@@ -905,10 +905,10 @@ class Option(Contract):
         assert isinstance(data, dict)
 
         self.t_data = data
-        if len(self._time) > 0:
-            assert data.time > self._time[-1], \
-                'time of data must be greater than lastest updated time:{}'.format(
-                self._time[-1])
+        #if len(self._time) > 0:
+        #    assert data.time > self._time[-1], \
+        #        'time of data: {} must be greater than lastest updated time:{}'.format(
+        #        data.time, self._time[-1])
         self._time.append(data.time)
         """
         step 1. update indicator
