@@ -36,7 +36,7 @@ KAFKA_SERVER = 'localhost:9092'
 HACK_DELAY = 0.02
 NUM_HANDLER = 6
 QUEUE_SIZE = 1000000
-DB_QUEUE_SIZE = 100000
+DB_QUEUE_SIZE = 1000000
 queues = [Queue.Queue(QUEUE_SIZE) for i in range(NUM_HANDLER)]
 
 FUTURES_DEPTH_TOPIC = 'FuturesDepthDataTest'
@@ -217,12 +217,12 @@ class KHandlerThread(threading.Thread):
         while True:
             self._closeout_event.wait()
             while self._closeout_event.isSet():
-                time.sleep(0.6)
+                #time.sleep(0.6)
 
                 # 持久化
                 if self._data_source == MQ_KAFKA:
                     try:
-                        k_msg = self._db_queue.get(timeout=0.3)
+                        k_msg = self._db_queue.get(timeout=0.001)
                         if k_msg:
                             #logger.info('[gen_cloing_kline]new kline message: {}'.format(k_msg.print_line()))
                             if not self.conn:
@@ -236,7 +236,7 @@ class KHandlerThread(threading.Thread):
                 #now_date = now_dt_str.split(' ')[0]         # 20220522
                 now_time = now_dt_str.split(' ')[1]         # 15:15:00
 
-                if now_time[-2:] == '00':
+                if now_time[-2:] == '00' and round(now_dt.microsecond/1000) == 1:
                     logger.info('[gen_cloing_kline]now_time:{}'.format(now_time))
 
                 mock_time = '20:48:00'
@@ -354,11 +354,22 @@ class KHandlerThread(threading.Thread):
                             if msg_data is None or len(msg_data.value) == 0:
                                 continue
                             cur_msg = msg_data.value.decode('utf-8').split(',')
-                            depth = Depth(cur_msg, time.time())
+
+                            start = time.time()
+                            depth = Depth(cur_msg, start)
                             if not self.check_data_valid(depth):
                                 continue
+
                             # depth计算
                             self.consume(depth)
+
+                            end = time.time()
+                            cnt_id += 1
+                            if cnt_id % 1000 == 0:
+                                logger.info("[run]code:{}, bucket_id:{}, cost of depth:{}".format(
+                                    depth.instrument_id, self._hid, end - start))
+                            if cnt_id > 10000000:
+                                cnt_id = 0
                     else:
                         # 阻塞等待消息
                         data_item = queues[self._hid].get()

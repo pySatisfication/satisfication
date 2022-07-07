@@ -2,7 +2,7 @@
 
 case $1 in
 start)
-    echo -n "starting kline service..."
+    echo "starting kline service..."
     pid=$(ps -ef | grep "python kline_handler" | grep -v grep | awk '{print $2}')
     for i in ${pid[@]}; do
       echo "kill -9 $i"
