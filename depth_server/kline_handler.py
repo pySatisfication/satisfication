@@ -217,7 +217,7 @@ class KHandlerThread(threading.Thread):
         while True:
             self._closeout_event.wait()
             while self._closeout_event.isSet():
-                #time.sleep(0.6)
+                time.sleep(0.001)
 
                 # 持久化
                 if self._data_source == MQ_KAFKA:
@@ -239,7 +239,7 @@ class KHandlerThread(threading.Thread):
                 if now_time[-2:] == '00' and round(now_dt.microsecond/1000) == 1:
                     logger.info('[gen_cloing_kline]now_time:{}'.format(now_time))
 
-                mock_time = '20:48:00'
+                mock_time = '20:34:00'
 
                 suspend_close_times = [TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
                                        TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN,
