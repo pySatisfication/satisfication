@@ -182,7 +182,7 @@ class KHandlerThread(threading.Thread):
             self.get_db_conn()
 
         # 休市&收盘
-        # 线程同步事件
+        # 守护线程同步事件
         self._closeout_event = threading.Event()
 
         # 子线程
@@ -231,16 +231,21 @@ class KHandlerThread(threading.Thread):
                     except Exception as e:
                         pass
 
+                # 休市&停盘&收盘
                 now_dt = datetime.datetime.now()
                 now_dt_str = dt_util.str_from_dt(now_dt)    # 20220522 15:15:00
                 #now_date = now_dt_str.split(' ')[0]         # 20220522
                 now_time = now_dt_str.split(' ')[1]         # 15:15:00
 
+                # 正式收盘
+                #if now_time == TIME_FIFTEEN_THIRTY:
+                #    self._closeout_event.clear()
+
+                # 心跳检测
                 if now_time[-2:] == '00' and round(now_dt.microsecond/1000) == 1:
                     logger.info('[gen_cloing_kline]now_time:{}'.format(now_time))
 
                 mock_time = '20:34:00'
-
                 suspend_close_times = [TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
                                        TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN,
                                        TIME_TWENTYTHREE_ONE,
@@ -329,10 +334,6 @@ class KHandlerThread(threading.Thread):
                             self._code_auction_hour.pop(code)
                         if code in self._code_in_night:
                             self._code_in_night.pop(code)
-
-                # 正式收盘
-                if now_time == TIME_FIFTEEN_SIXTEEN:
-                    self._closeout_event.clear()
             logger.info('sleeping, wait closeout event being set...')
 
     def cancel(self):
