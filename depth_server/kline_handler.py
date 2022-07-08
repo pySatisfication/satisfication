@@ -39,7 +39,7 @@ QUEUE_SIZE = 1000000
 DB_QUEUE_SIZE = 1000000
 queues = [Queue.Queue(QUEUE_SIZE) for i in range(NUM_HANDLER)]
 
-FUTURES_DEPTH_TOPIC = 'FuturesDepthDataTest'
+FUTURES_DEPTH_TOPIC = 'FuturesDepthDataTest2'
 FUTURES_KLINE_TPOIC = 'FuturesKLineTest'
 
 GLOBAL_CACHE_KEY = 'global_cache'
