@@ -23,12 +23,6 @@ else:
 import parallel as px
 from kafka import KafkaConsumer,KafkaProducer
 
-# logger
-config_file = 'logger_config.json'
-with open(config_file, 'r', encoding='utf-8') as file:
-    logging.config.dictConfig(json.load(file))
-logger = logging.getLogger("worker")
-
 MQ_KEYS = ['kafka','redis','rabbitmq']
 MQ_KAFKA = 'kafka'
 KAFKA_SERVER = 'localhost:9092'
@@ -145,7 +139,11 @@ class KHandlerThread(threading.Thread):
     """
     Thread that can be canceled using `cancel()`.
     """
-    def __init__(self, h_id, event, data_source):
+    def __init__(self,
+                 h_id,
+                 event,
+                 data_source,
+                 config_file='logger_config.json'):
         threading.Thread.__init__(self)
         # 线程名
         self.name = f"handler_{h_id}"
@@ -179,7 +177,8 @@ class KHandlerThread(threading.Thread):
                                           auto_offset_reset='latest',
                                           group_id='k_depth_c1',
                                           bootstrap_servers=['localhost:9092'])
-            self.get_db_conn()
+            #self.get_db_conn()
+            self.db_handler = db_util.DBHandler(config_file=config_file)
 
         # 休市&收盘
         # 守护线程同步事件
@@ -198,6 +197,11 @@ class KHandlerThread(threading.Thread):
 
         self.m_code_next_span = {}
         self.m_code_depth_status = {}
+
+        # logger
+        with open(config_file, 'r', encoding='utf-8') as file:
+            logging.config.dictConfig(json.load(file))
+        self.logger = logging.getLogger(__name__)
 
     def get_db_conn(self):
         # 数据库连接信息
@@ -225,9 +229,15 @@ class KHandlerThread(threading.Thread):
                         k_msg = self._db_queue.get(timeout=0.001)
                         if k_msg:
                             #logger.info('[gen_cloing_kline]new kline message: {}'.format(k_msg.print_line()))
-                            if not self.conn:
-                                self.get_db_conn()
-                            db_util.insert_one(self.conn, k_msg)
+                            #if not self.conn:
+                            #    self.get_db_conn()
+                            #db_util.insert_one(self.conn, k_msg)
+
+                            self.db_handler.insert_one(k_msg)
+
+                            # 离线debug是否获取到kline
+                            with open('depth_debug_' + str(self._hid), 'a') as w:
+                                w.write(k_msg.print_line() + '\n')
                     except Exception as e:
                         pass
 
@@ -243,7 +253,7 @@ class KHandlerThread(threading.Thread):
 
                 # 心跳检测
                 if now_time[-2:] == '00' and round(now_dt.microsecond/1000) == 1:
-                    logger.info('[gen_cloing_kline]now_time:{}'.format(now_time))
+                    self.logger.info('[gen_cloing_kline]now_time:{}'.format(now_time))
 
                 mock_time = '20:34:00'
                 suspend_close_times = [TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
@@ -261,7 +271,7 @@ class KHandlerThread(threading.Thread):
                     code_prefix = self._tth.get_code_prefix(code)
                     # global cache
                     if GLOBAL_CACHE_KEY not in self._kline_cache[code]:
-                        logger.info('[gen_cloing_kline]no global cache, code:{}'.format(code))
+                        self.logger.info('[gen_cloing_kline]no global cache, code:{}'.format(code))
                         continue
                     g_cache = self._kline_cache[code][GLOBAL_CACHE_KEY]
 
@@ -311,7 +321,7 @@ class KHandlerThread(threading.Thread):
                     if not (suspend_flag or close_flag or local_flag):
                         continue
 
-                    logger.info('[gen_cloing_kline]generate last K, code:{}, end_time:{}, cur_time:{}'.format(
+                    self.logger.info('[gen_cloing_kline]generate last K, code:{}, end_time:{}, cur_time:{}'.format(
                         code, end_dt_str, norm_close_dt_str))
                     cur_depth = Depth(norm_close_dt_str.split(' ') + [code], time.time())
                     self.depth_tick(cur_depth, close_out=True, mock_end_dt_str=end_dt_str)
@@ -322,11 +332,11 @@ class KHandlerThread(threading.Thread):
 
                     # 缓存DEBUG
                     for p_key, cache in self._kline_cache[code].items():
-                        logger.info('[gen_cloing_kline]rest p_key:{}, cache:{}'.format(p_key, cache.print_line()))
+                        self.logger.info('[gen_cloing_kline]rest p_key:{}, cache:{}'.format(p_key, cache.print_line()))
 
                     # 收盘需要清空品种对应全部缓存, 其他休市或停盘时间只是处理完一个周期就清空对应周期的缓存
                     if close_flag:
-                        logger.info('[gen_cloing_kline]clear cache, code:{}, now_time:{}'.format(code, now_time))
+                        self.logger.info('[gen_cloing_kline]clear cache, code:{}, now_time:{}'.format(code, now_time))
                         self._kline_cache[code] = {}
                         if code in self._last_depth:
                             self._last_depth.pop(code)
@@ -334,7 +344,7 @@ class KHandlerThread(threading.Thread):
                             self._code_auction_hour.pop(code)
                         if code in self._code_in_night:
                             self._code_in_night.pop(code)
-            logger.info('sleeping, wait closeout event being set...')
+            self.logger.info('sleeping, wait closeout event being set...')
 
     def cancel(self):
         self._isCanceled = True
@@ -367,7 +377,7 @@ class KHandlerThread(threading.Thread):
                             end = time.time()
                             cnt_id += 1
                             if cnt_id % 1000 == 0:
-                                logger.info("[run]code:{}, bucket_id:{}, cost of depth:{}".format(
+                                self.logger.info("[run]code:{}, bucket_id:{}, cost of depth:{}".format(
                                     depth.instrument_id, self._hid, end - start))
                             if cnt_id > 10000000:
                                 cnt_id = 0
@@ -382,19 +392,19 @@ class KHandlerThread(threading.Thread):
                         end = time.time()
                         cnt_id += 1
                         if cnt_id % 1000 == 0:
-                            logger.info("[run]code:{}, bucket_id:{}, cost of depth:{}".format(
+                            self.logger.info("[run]code:{}, bucket_id:{}, cost of depth:{}".format(
                                 data_item.instrument_id, self._hid, end - data_item.sys_time))
                         if cnt_id > 10000000:
                             cnt_id = 0
                 except Queue.Empty:
                     pass
         except Exception as error:
-            logger.warning("cannot continue to consume: %s", error)
+            self.logger.warning("cannot continue to consume: %s", error)
 
             exc_info = sys.exc_info()
-            logger.info("raising notified error: %s %s", exc_info[0], exc_info[1])
+            self.logger.info("raising notified error: %s %s", exc_info[0], exc_info[1])
             for filename, linenum, funcname, source in traceback.extract_tb(exc_info[2]):
-                logger.warning("%-23s:%s '%s' in %s", filename, linenum, source, funcname)
+                self.logger.warning("%-23s:%s '%s' in %s", filename, linenum, source, funcname)
 
     def check_data_valid(self, depth):
         code = depth.instrument_id
@@ -889,7 +899,7 @@ class KHandlerThread(threading.Thread):
                 try:
                    future.get(timeout=5)
                 except Exception as e:
-                   logger.error('[gen_kline]send kline message error:', e)
+                   self.logger.error('[gen_kline]send kline message error:', e)
                    traceback.format_exc()
 
                 # mysql
@@ -904,7 +914,7 @@ class KHandlerThread(threading.Thread):
                 self._kline_cache[code].pop(period)
         else:
             if code not in self._kline_cache or GLOBAL_CACHE_KEY not in self._kline_cache[code]:
-                logger.error('[update_cache]no cache, code:{}'.format(code))
+                self.logger.error('[update_cache]no cache, code:{}'.format(code))
                 return k_line
             # 更新GLOBAL_CACHE
             self._kline_cache[code][GLOBAL_CACHE_KEY].end_dt_str = cur_dt_str
@@ -925,7 +935,7 @@ class KHandlerThread(threading.Thread):
         else:
             assert code in self._kline_cache
             if GLOBAL_CACHE_KEY not in self._kline_cache[code] or self._kline_cache[code][GLOBAL_CACHE_KEY] is None:
-                logger.warning('[depth_tick]global_cache is none, code:{}, update_time:{}, update_millisec:{}'.format(
+                self.logger.warning('[depth_tick]global_cache is none, code:{}, update_time:{}, update_millisec:{}'.format(
                     code, cur_depth.update_time, cur_depth.update_millisec))
                 return
             g_cache = self._kline_cache[code][GLOBAL_CACHE_KEY]
@@ -948,7 +958,7 @@ class KHandlerThread(threading.Thread):
             or (self._tth.check_open_time(code_prefix, cur_time) and code in self._last_depth \
                 and self._last_depth[code].is_call_auction):
             self.update_cache(code, M_PERIOD_KEY, cur_sec, cur_dt_str, cur_dt, depth=cur_depth)
-            logger.info('[depth_tick]auction, code:{}, update_time:{}'.format(
+            self.logger.info('[depth_tick]auction, code:{}, update_time:{}'.format(
                 code, cur_depth.update_time))
             return
 
@@ -1175,7 +1185,7 @@ class KHandlerThread(threading.Thread):
         '''
         code, periods, cur_sec, cur_dt_str, cur_dt = args[0], args[1], args[2], args[3], args[4]
         if code not in self._kline_cache or GLOBAL_CACHE_KEY not in self._kline_cache[code]:
-            logger.error('[update_cache]no cache, code:{}'.format(code))
+            self.logger.error('[update_cache]no cache, code:{}'.format(code))
             return
 
         if not dnot_update_end_time:
@@ -1221,7 +1231,7 @@ class KHandlerThread(threading.Thread):
 
         # 集合竞价
         if self._tth.check_in(2, code, cur_depth.update_time):
-            logger.info('[consume]auction, code:{}, update_time:{}'.format(code, cur_depth.update_time))
+            self.logger.info('[consume]auction, code:{}, update_time:{}'.format(code, cur_depth.update_time))
             cur_depth.is_call_auction = True
             self._code_auction_hour[code] = cur_depth.update_time
             new_update_time = self._tth.get_nearest_open(code_prefix, cur_depth.update_time)
@@ -1241,12 +1251,12 @@ class KHandlerThread(threading.Thread):
                 last_hour = int(self._last_depth[code].update_time[0:2])
                 t_hour = int(cur_depth.update_time[0:2])
                 if (last_hour in [14, 15] and t_hour in [8, 9, 20, 21]) or cur_depth.is_call_auction:
-                    logger.info('[consume]clear last depth, code:{}, update_time:{}, last_hour:{}, t_hour:{}'.format(
+                    self.logger.info('[consume]clear last depth, code:{}, update_time:{}, last_hour:{}, t_hour:{}'.format(
                         code, last_hour, t_hour, cur_depth.update_time))
                     self._last_depth.pop(code)
         else:
             if code in self._last_depth and cur_depth.trading_day != self._last_depth[code].trading_day:
-                logger.info('[consume]clear last depth, code:{}, trading_day:{}, last_trading_day:{}, update_time:{}'.format(
+                self.logger.info('[consume]clear last depth, code:{}, trading_day:{}, last_trading_day:{}, update_time:{}'.format(
                     code, cur_depth.trading_day, self._last_depth[code].trading_day, cur_depth.update_time))
                 self._last_depth.pop(code)
 
@@ -1266,13 +1276,13 @@ class KHandlerThread(threading.Thread):
         #if code not in self._kline_cache or GLOBAL_CACHE_KEY not in self._kline_cache[code]:
         if his_first_depth or first_depth:
             if his_first_depth:
-                logger.info('[consume]first depth, code:{}, update_time:{}'.format(
+                self.logger.info('[consume]first depth, code:{}, update_time:{}'.format(
                     code, cur_depth.update_time, len(self._kline_cache)))
             if first_depth:
-                logger.info('[consume]first depth, code:{}, update_time:{}, cache size:{}'.format(
+                self.logger.info('[consume]first depth, code:{}, update_time:{}, cache size:{}'.format(
                     code, cur_depth.update_time, len(self._kline_cache)))
             if not cur_depth.is_call_auction:
-                logger.warning('[consume]no auction, code:{}, update_time:{}'.format(code, cur_depth.update_time))
+                self.logger.warning('[consume]no auction, code:{}, update_time:{}'.format(code, cur_depth.update_time))
             self.init_cache(cur_depth)
         else:
             # 核心方法
@@ -1387,7 +1397,7 @@ def depth_data_iterate(data: 'str', sys_time: 'float'):
     else:
         b_offset = len(m_ccode_id)
         m_ccode_id[code] = b_offset
-        logger.info("[depth_data_iterate]code:{}, bucket:{}".format(code, b_offset))
+        print("[depth_data_iterate]code:{}, bucket:{}".format(code, b_offset))
 
     b_id = b_offset % NUM_HANDLER
     # 广播消息
