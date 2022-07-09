@@ -15,4 +15,4 @@ data
 .DS_Store
 
 depth_server/*.csv
-depth_server/depth_debug
+depth_server/depth_debug*

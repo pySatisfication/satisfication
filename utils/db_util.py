@@ -16,7 +16,7 @@ USER_PASSWD = 'p12345'
 DB_NAME = 'db_qt_0703'
 DEFAULT_CHARSET = 'utf8'
 KLINE_TABLE = 'kline_test'
-CONN_TIMEOUT = 5
+#CONN_TIMEOUT = 10
 
 class DBHandler(object):
     def __init__(self, config_file=None):
@@ -29,26 +29,31 @@ class DBHandler(object):
                                     passwd=USER_PASSWD,
                                     db=DB_NAME,
                                     port=DB_PORT,
-                                    connect_timeout=CONN_TIMEOUT,
+                                    #connect_timeout=CONN_TIMEOUT,
                                     charset=DEFAULT_CHARSET)
         #self.cursor = self.conn.cursor()
 
-    def _reconnect(self):
+    def _check_conn(self):
         try:
-            self.conn.ping()
+            if hasattr(self.conn, 'get_sock'):
+                sock = self.get_sock_obj()
+                if not sock:
+                    self.logger.info('[_reconnect]server disconnected, reconnecting...')
+                    print('[_reconnect]server disconnected, reconnecting...')
+                    self.conn.ping()
+            else:
+                self.conn.ping()
         except:
-            self.logger.info('[_reconnect]ping error, reconnecting...')
-            print('[_reconnect]ping error, reconnecting...')
-            self.get_db_conn()
+            pass
 
     def insert_one(self, k_data):
         try:
-            self._reconnect()
+            self._check_conn()
             cursor = self.conn.cursor()
 
             sql = "insert into " \
-                  "kline(code,period_type,k_time,open,high,low,close,volume,open_interest,turnover,gen_date_time) " \
-                  "values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)" % KLINE_TABLE
+                  "{}(code,period_type,k_time,open,high,low,close,volume,open_interest,turnover,gen_date_time) " \
+                  "values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)".format(KLINE_TABLE)
             params = (k_data.code,
                       k_data.period_type,
                       k_data.k_time,
@@ -65,13 +70,18 @@ class DBHandler(object):
         except Exception as e:
             traceback.print_exc()
 
+    def close(self):
+        self.conn.close()
+
+    def get_sock_obj(self):
+        return self.conn.get_sock()
+
 if __name__ == '__main__':
+    kline = KLine(['test_code','period','20220601 10:00:00',0.0,0.0,0.0,0.0,0.0,0.0,0.0])
     db_handler = DBHandler()
-
-    time.sleep(5)
-    print("conn:", db_handler.conn)
-
-    #kline = KLine(['test_code', 'period', '20220601 10:00:00', 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    #db_handler.insert_one(kline)
+    db_handler.insert_one(kline)
+    print('close...')
+    db_handler.close()
+    db_handler.insert_one(kline)
 
 

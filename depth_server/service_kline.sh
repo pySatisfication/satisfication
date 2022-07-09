@@ -20,6 +20,15 @@ start)
     echo $(date)
     nohup python kline_handler.py --depth_source=kafka > /opt/logs/kline/main.log 2>&1 &
     ;;
+status)
+    pid=$(ps -ef | grep "python kline_handler" | grep -v grep | awk '{print $2}')
+    pids=($pid)
+    if [ ${#pids[@]} -gt 0 ]; then
+        echo "service is running. the number of alive service is: ${#pids[@]}"
+    else
+        echo "service is not running. the number of alive service is: ${#pids[@]}"
+    fi
+    ;;
 stop)
     pid=$(ps -ef | grep "python kline_handler" | grep -v grep | awk '{print $2}')
     for i in ${pid[@]}; do
