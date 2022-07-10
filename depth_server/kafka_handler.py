@@ -47,7 +47,7 @@ class KafkaHandler(object):
             self.logger.error('[gen_kline]send kline message error:', e)
             traceback.format_exc()
 
-    def __next__(self):
+    def items(self):
         for msg_data in self.consumer:
             if msg_data is None or len(msg_data.value) == 0:
                 continue
@@ -59,6 +59,6 @@ class KafkaHandler(object):
 
 if __name__ == '__main__':
     kh = KafkaHandler(0)
-    for item in kh:
+    for item in kh.items():
         print(item)
 
