@@ -78,3 +78,15 @@ class Depth(object):
         self.action_dt = dt_util.dt_from_str(self.action_dt_str)
         self.trading_dt_str = self.trading_day + ' ' + new_update_time
 
+    def __str__(self):
+        return "{},{},{},{},{},{},{},{},{}".format(
+            self.trading_day,
+            self.instrument_id,
+            self.update_time,
+            self.update_millisec,
+            self.last_price,
+            self.volume,
+            self.open_interest,
+            self.turnover,
+            self.action_day)
+
