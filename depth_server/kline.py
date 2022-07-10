@@ -94,13 +94,7 @@ class KLine(object):
     def turnover(self, turnover):
         self._turnover = turnover
 
-    def __repr__(self):
-        return "{},{},{},{},{},{},{},{},{},{}".format(
-            self._code, self._period_type, self._k_time,
-            self._open, self._high, self._low, self._close,
-            self._volume, self._open_interest, self._turnover)
-
-    def print_line(self):
+    def __str__(self):
         return "{},{},{},{},{},{},{},{},{},{}".format(
             self._code, self._period_type, self._k_time,
             self._open, self._high, self._low, self._close,

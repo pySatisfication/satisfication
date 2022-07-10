@@ -14,6 +14,7 @@ from utils import dt_util,db_util
 from depth import Depth
 from kline import KLine
 from tran_time_helper import *
+from kafka_handler import KafkaHandler
 
 if sys.version > '3':
     import queue as Queue
@@ -25,18 +26,11 @@ from kafka import KafkaConsumer,KafkaProducer,TopicPartition
 
 MQ_KEYS = ['kafka','redis','rabbitmq']
 MQ_KAFKA = 'kafka'
-KAFKA_SERVER = 'localhost:9092'
-CONSUMER_GROUP_ID = 'k_depth_c1'
-AUTO_OFFSET_RESET = 'latest'
 
 HACK_DELAY = 0.02
 NUM_HANDLER = 6
-QUEUE_SIZE = 1000000
+LOCAL_QUEUE_SIZE = 1000000
 DB_QUEUE_SIZE = 1000000
-queues = [Queue.Queue(QUEUE_SIZE) for i in range(NUM_HANDLER)]
-
-FUTURES_DEPTH_TOPIC = 'FuturesDepthDataTest2'
-FUTURES_KLINE_TPOIC = 'FuturesKLineTest'
 
 GLOBAL_CACHE_KEY = 'global_cache'
 KEY_K_15S = 'key_k_15s'
@@ -93,17 +87,7 @@ class KCache(object):
         self._open_interest = args[7] if len(args) >= 9 else 0.0
         self._turnover = args[8] if len(args) >= 9 else 0.0
 
-    def __repr__(self):
-        if hasattr(self, 'open'):
-            return "{},{},{},{},{},{},{},{},{},{}".format(
-                self.code, self.open_dt_str, self.end_dt_str,
-                self.open, self.high, self.low, self.close,
-                self._volume, self._open_interest, self._turnover)
-        else:
-            return "{},{},{},{},{},{},{},{},{},{}".format(
-                self.code, self.open_dt_str, self.end_dt_str)
-
-    def print_line(self):
+    def __str__(self):
         if hasattr(self, 'open'):
             return "{},{},{},{},{},{},{},{},{},{}".format(
                 self.code, self.open_dt_str, self.end_dt_str,
@@ -145,6 +129,7 @@ class KHandlerThread(threading.Thread):
                  h_id,
                  event,
                  data_source,
+                 local_queue=None,
                  config_file='logger_config.json'):
         threading.Thread.__init__(self)
         # 线程名
@@ -174,12 +159,15 @@ class KHandlerThread(threading.Thread):
 
         # 消息队列
         if self._data_source == MQ_KAFKA:
-            self.producer = KafkaProducer(bootstrap_servers=[KAFKA_SERVER])
-            self.consumer = KafkaConsumer(auto_offset_reset=AUTO_OFFSET_RESET,
-                                          group_id=CONSUMER_GROUP_ID,
-                                          bootstrap_servers=[KAFKA_SERVER])
-            self.consumer.assign([TopicPartition(FUTURES_DEPTH_TOPIC, self._hid)])
+            self.kafka_handler = KafkaHandler(config_file=config_file)
+            #self.producer = KafkaProducer(bootstrap_servers=[KAFKA_SERVER])
+            #self.consumer = KafkaConsumer(auto_offset_reset=AUTO_OFFSET_RESET,
+            #                              group_id=CONSUMER_GROUP_ID,
+            #                              bootstrap_servers=[KAFKA_SERVER])
+            #self.consumer.assign([TopicPartition(FUTURES_DEPTH_TOPIC, self._hid)])
             #self.get_db_conn()
+        else:
+            self._local_queue = local_queue
 
         # 持久化
         self.db_handler = db_util.DBHandler(config_file=config_file)
@@ -232,16 +220,10 @@ class KHandlerThread(threading.Thread):
                     try:
                         k_msg = self._db_queue.get(timeout=0.001)
                         if k_msg:
-                            #logger.info('[gen_cloing_kline]new kline message: {}'.format(k_msg.print_line()))
-                            #if not self.conn:
-                            #    self.get_db_conn()
-                            #db_util.insert_one(self.conn, k_msg)
-
                             self.db_handler.insert_one(k_msg)
-
                             # 离线debug是否获取到kline
                             with open('depth_debug_' + str(self._hid), 'a') as w:
-                                w.write(k_msg.print_line() + '\n')
+                                w.write(str(k_msg) + '\n')
                     except Exception as e:
                         pass
 
@@ -336,7 +318,7 @@ class KHandlerThread(threading.Thread):
 
                     # 缓存DEBUG
                     for p_key, cache in self._kline_cache[code].items():
-                        self.logger.info('[gen_cloing_kline]rest p_key:{}, cache:{}'.format(p_key, cache.print_line()))
+                        self.logger.info('[gen_cloing_kline]rest p_key:{}, cache:{}'.format(p_key, str(cache)))
 
                     # 收盘需要清空品种对应全部缓存, 其他休市或停盘时间只是处理完一个周期就清空对应周期的缓存
                     if close_flag:
@@ -363,52 +345,50 @@ class KHandlerThread(threading.Thread):
 
             cnt_id = 0
             while self._event.isSet():
-                try:
-                    if self._data_source == MQ_KAFKA:
-                        for msg_data in self.consumer:
-                            if msg_data is None or len(msg_data.value) == 0:
-                                continue
-                            cur_msg = msg_data.value.decode('utf-8').split(',')
+                if self._data_source == MQ_KAFKA:
+                    for msg_data in self.kafka_handler.consume():
+                        if msg_data is None or len(msg_data.value) == 0:
+                            continue
+                        cur_msg = msg_data.value.decode('utf-8').split(',')
 
-                            start = time.time()
-                            depth = Depth(cur_msg, start)
-                            if not self.check_data_valid(depth):
-                                continue
-
-                            # depth计算
-                            self.consume(depth)
-
-                            end = time.time()
-                            cnt_id += 1
-                            if cnt_id % 1000 == 0:
-                                self.logger.info("[run]code:{}, bucket_id:{}, cost of depth:{}".format(
-                                    depth.instrument_id, self._hid, end - start))
-                            if cnt_id > 10000000:
-                                cnt_id = 0
-                    else:
-                        # 阻塞等待消息
-                        data_item = queues[self._hid].get()
+                        start = time.time()
+                        depth = Depth(cur_msg, start)
+                        if not self.check_data_valid(depth):
+                            continue
 
                         # depth计算
-                        self.consume(data_item)
+                        self.consume(depth)
+
+                        end = time.time()
+                        cnt_id += 1
+                        if cnt_id % 1000 == 0:
+                            self.logger.info("[run]code:{}, bucket_id:{}, cost of depth:{}".format(
+                                depth.instrument_id, self._hid, end - start))
+                        if cnt_id > 10000000:
+                            cnt_id = 0
+                else:
+                    while True:
+                        # 阻塞等待消息
+                        depth = self._local_queue.get()
+
+                        # depth计算
+                        self.consume(depth)
 
                         # 计时
                         end = time.time()
                         cnt_id += 1
                         if cnt_id % 1000 == 0:
                             self.logger.info("[run]code:{}, bucket_id:{}, cost of depth:{}".format(
-                                data_item.instrument_id, self._hid, end - data_item.sys_time))
+                                depth.instrument_id, self._hid, end - depth.sys_time))
                         if cnt_id > 10000000:
                             cnt_id = 0
-                except Queue.Empty:
-                    pass
         except Exception as error:
-            self.logger.warning("cannot continue to consume: %s", error)
+            self.logger.error("cannot continue to consume: %s", error)
 
             exc_info = sys.exc_info()
-            self.logger.info("raising notified error: %s %s", exc_info[0], exc_info[1])
+            self.logger.error("raising notified error: %s %s", exc_info[0], exc_info[1])
             for filename, linenum, funcname, source in traceback.extract_tb(exc_info[2]):
-                self.logger.warning("%-23s:%s '%s' in %s", filename, linenum, source, funcname)
+                self.logger.error("%-23s:%s '%s' in %s", filename, linenum, source, funcname)
 
     def check_data_valid(self, depth):
         code = depth.instrument_id
@@ -897,20 +877,12 @@ class KHandlerThread(threading.Thread):
         if k_line.open > 0.0 and k_line.high > 0.0 and k_line.low > 0.0 and k_line.close > 0.0 and k_line.volume > 0.0:
             if self._data_source == MQ_KAFKA:
                 # kafka
-                future = self.producer.send(FUTURES_KLINE_TPOIC,
-                                            k_line.print_line().encode('utf-8'),
-                                            partition=self._hid)
-                try:
-                   future.get(timeout=5)
-                except Exception as e:
-                   self.logger.error('[gen_kline]send kline message error:', e)
-                   traceback.format_exc()
-
+                self.kafka_handler.produce(k_line)
                 # mysql
                 self._db_queue.put(k_line)
             else:
                 with open('k_line_{}.csv'.format(self._data_source), 'a') as w:
-                    w.write(k_line.print_line() + '\n')
+                    w.write(str(k_line) + '\n')
 
         if kwargs['close_out']:
             # 当天收盘清空对应缓存
@@ -1405,24 +1377,29 @@ def depth_data_iterate(data: 'str', sys_time: 'float'):
 
     b_id = b_offset % NUM_HANDLER
     # 广播消息
-    queues[b_id].put(depth, True)
+    local_depth_queues[b_id].put(depth, True)
 
 if __name__ == '__main__':
     # 解析参数
     args = parse_args()
     assert args.depth_source
 
-    # k线存储位置
+    # 运行方式：本地or线上
     if args.depth_source == MQ_KAFKA:
         data_source = MQ_KAFKA
+        local_depth_queues = [None for i in range(NUM_HANDLER)]
     else:
         data_source = args.depth_source.split('/')[-1].split('.')[0]
+        local_depth_queues = [Queue.Queue(LOCAL_QUEUE_SIZE) for i in range(NUM_HANDLER)]
 
-    # 并发处理
+    # 创建并发线程
     depth_event = threading.Event()
     consumers = []
-    for consumerId in range(NUM_HANDLER):
-        consumer = KHandlerThread(consumerId, depth_event, data_source)
+    for consumer_id in range(NUM_HANDLER):
+        consumer = KHandlerThread(consumer_id,
+                                  depth_event,
+                                  data_source,
+                                  local_depth_queues[consumer_id])
         consumers.append(consumer)
         consumer.start()
     for consumer in consumers:
@@ -1431,13 +1408,13 @@ if __name__ == '__main__':
     depth_event.set()
     # 记录分桶
     m_ccode_id = {}
-    # 时间处理
+    # 时间处理工具包
     tth = TranTimeHelper()
 
     m_code_next_span = {}
     m_code_depth_status = {}
 
-    if args.depth_source in MQ_KEYS:
+    if args.depth_source == MQ_KAFKA:
         pass
         #print('depth_source is kafka...')
         #consumer = KafkaConsumer(FUTURES_DEPTH_TOPIC, auto_offset_reset='latest', bootstrap_servers= ['localhost:9092'])

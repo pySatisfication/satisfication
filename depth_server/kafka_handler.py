@@ -22,10 +22,15 @@ class KafkaHandler(object):
             formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             kzt.setFormatter(formatter)
             self.logger.addHandler(kzt)
+        self.build_producer()
+        self.build_consumer()
 
-        # producer
+    def build_producer(self):
         self.producer = KafkaProducer(bootstrap_servers=[KAFKA_SERVER])
+        if self.producer.bootstrap_connected():
+            self.logger.info('[KafkaHandler]build kafka producer successful')
 
+    def build_consumer(self):
         # consumer
         self.consumer = KafkaConsumer(auto_offset_reset=AUTO_OFFSET_RESET,
                                       group_id=CONSUMER_GROUP_ID,
@@ -33,13 +38,29 @@ class KafkaHandler(object):
         self.consumer.assign([TopicPartition(FUTURES_DEPTH_TOPIC, self._bid)])
 
         if self.consumer.bootstrap_connected():
-            self.logger.info('[KafkaHandler]kafka connection success.')
+            self.logger.info('[KafkaHandler]build kafka consumer successful')
             for tp in self.consumer.assignment():
                 self.logger.info('[KafkaHandler]topic:{}, partition:{}'.format(tp[0], tp[1]))
 
     def produce(self, k_item):
+        if not self.producer.bootstrap_connected():
+            retry_times = 3
+            while retry_times > 0:
+                try:
+                    self.logger.info('[KafkaHandler]connect with kafka server, rest times: {}'.format(
+                        retry_times))
+                    self.build_producer()
+                except Exception as e:
+                    self.logger.error('[KafkaHandler]error:{}, rest times: {}'.format(e, retry_times))
+                if self.producer.bootstrap_connected():
+                    break
+                retry_times -= 1
+            if not self.producer.bootstrap_connected():
+                self.logger.error('[KafkaHandler]Unable to connect to the server. prepare to exit.')
+                return
+        # 正常连接
         future = self.producer.send(FUTURES_KLINE_TPOIC,
-                                    k_item.print_line().encode('utf-8'),
+                                    str(k_item).encode('utf-8'),
                                     partition=self._bid)
         try:
             future.get(timeout=5)
@@ -47,7 +68,23 @@ class KafkaHandler(object):
             self.logger.error('[gen_kline]send kline message error:', e)
             traceback.format_exc()
 
-    def items(self):
+    def consume(self):
+        if not self.consumer.bootstrap_connected():
+            retry_times = 3
+            while retry_times > 0:
+                try:
+                    self.logger.info('[KafkaHandler]connect with kafka server, rest times: {}'.format(
+                        retry_times))
+                    self.build_consumer()
+                except Exception as e:
+                    self.logger.error('[KafkaHandler]error:{}, rest times: {}'.format(e, retry_times))
+                if self.consumer.bootstrap_connected():
+                    break
+                retry_times -= 1
+            if not self.consumer.bootstrap_connected():
+                self.logger.error('[KafkaHandler]Unable to connect to the server. prepare to exit.')
+                return
+        # 正常连接
         for msg_data in self.consumer:
             if msg_data is None or len(msg_data.value) == 0:
                 continue
@@ -59,6 +96,6 @@ class KafkaHandler(object):
 
 if __name__ == '__main__':
     kh = KafkaHandler(0)
-    for item in kh.items():
+    for item in kh.consume():
         print(item)
 
