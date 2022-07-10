@@ -4,7 +4,7 @@ import json
 import threading
 import logging
 import contract as ct
-import utils.redis_ts_util as rtu
+import utils.redis_util as ru
 from easydict import EasyDict as edict
 
 class ContractFactory(object):
@@ -76,7 +76,7 @@ class SimpleStrategy(BaseStrategy):
         item.make_judge()
         #try:
         #    # save in time-series for current step
-        #    if rtu.add(c_code + '_' + data.period, data.time, j_idx_str):
+        #    if ru.add(c_code + '_' + data.period, data.time, j_idx_str):
         #        print('write intermediate results to redis successfully:', data.time)
         #    else:
         #        print('write intermediate results to redis failed:', data.time)
@@ -104,7 +104,7 @@ class SimpleStrategy(BaseStrategy):
             'f_par': ''.join(f_par)})
         try:
             # save in time-series for current step
-            if rtu.add(c_code + '_' + data.period + ':stg', data.time, j_stg_str):
+            if ru.add(c_code + '_' + data.period + ':stg', data.time, j_stg_str):
                 print('write stg results to redis successfully:', data.time)
             else:
                 print('write stg results to redis failed:', data.time)

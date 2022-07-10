@@ -4,8 +4,8 @@ import sys
 import numpy as np
 from easydict import EasyDict as edict
 
-import utils.util as op_util
-import utils.redis_ts_util as rtu
+import utils.util as qu
+import utils.redis_util as ru
 import utils.file_util as fu
 
 _RESERVE_DAYS = 100
@@ -333,11 +333,11 @@ class Option(Contract):
             'close sequence must be non-empty'
 
         # ema in 12 days
-        cur_val = op_util.ema_cc(self._ema12, self._close[-1], _EMA12_DEFAULT_N)
+        cur_val = qu.ema_cc(self._ema12, self._close[-1], _EMA12_DEFAULT_N)
         self._ema12.append(round(cur_val, 2))
 
         # 26 days
-        cur_val = op_util.ema_cc(self._ema26, self._close[-1], _EMA26_DEFAULT_N)
+        cur_val = qu.ema_cc(self._ema26, self._close[-1], _EMA26_DEFAULT_N)
         self._ema26.append(round(cur_val, 2))
 
     def update_macd(self):
@@ -346,7 +346,7 @@ class Option(Contract):
         self._diff.append(round(self._ema12[-1] - self._ema26[-1], 2))
 
         # dea
-        cur_val = round(op_util.ema_cc(self._dea, self._diff[-1], _DEA_DEFAULT_N), 2)
+        cur_val = round(qu.ema_cc(self._dea, self._diff[-1], _DEA_DEFAULT_N), 2)
         self._dea.append(cur_val)
 
         # macd
@@ -367,7 +367,7 @@ class Option(Contract):
             N = len(self._close)
 
         # boll_st
-        cur_boll_st = round(op_util.ma(self._close, N), 6)
+        cur_boll_st = round(qu.ma(self._close, N), 6)
         self._boll_st.append(cur_boll_st)
 
         if len(self._close) == 1:
@@ -375,9 +375,9 @@ class Option(Contract):
             self._lb_st.append(0.0)
         else:
             # ub_st
-            self._ub_st.append(round(cur_boll_st + M * op_util.std(self._close, N), 6))
+            self._ub_st.append(round(cur_boll_st + M * qu.std(self._close, N), 6))
             # lb_st
-            self._lb_st.append(round(cur_boll_st - M * op_util.std(self._close, N), 6))
+            self._lb_st.append(round(cur_boll_st - M * qu.std(self._close, N), 6))
 
         if len(self._boll_st) == 1:
             self._trend_to_rise.append(0)
@@ -387,14 +387,14 @@ class Option(Contract):
             return
 
         # BOLL_ST>=REF(BOLL_ST,1) AND UB_ST>REF(UB_ST,1)
-        if self._boll_st[-1] > op_util.ref(self._boll_st, 1) \
-            and self._ub_st[-1] > op_util.ref(self._ub_st, 1):
+        if self._boll_st[-1] > qu.ref(self._boll_st, 1) \
+            and self._ub_st[-1] > qu.ref(self._ub_st, 1):
             self._trend_to_rise.append(1)
         else:
             self._trend_to_rise.append(0)
 
-        if self._boll_st[-1] <= op_util.ref(self._boll_st, 1) \
-            and self._lb_st[-1] > op_util.ref(self._lb_st, 1):
+        if self._boll_st[-1] <= qu.ref(self._boll_st, 1) \
+            and self._lb_st[-1] > qu.ref(self._lb_st, 1):
             self._trend_to_fall.append(1)
         else:
             self._trend_to_fall.append(0)
@@ -408,10 +408,10 @@ class Option(Contract):
         if len(self._boll_st_s1) < N:
             N = len(self._boll_st_s1)
 
-        self._boll_st_s2.append(round(op_util.ma(self._boll_st_s1, N), 6))
-        self._boll_st_s3.append(round(op_util.ma(self._boll_st_s2, N), 6))
-        self._boll_st_s4.append(round(op_util.ma(self._boll_st_s3, N), 6))
-        self._boll_st_s5.append(round(op_util.ma(self._boll_st_s4, N), 6))
+        self._boll_st_s2.append(round(qu.ma(self._boll_st_s1, N), 6))
+        self._boll_st_s3.append(round(qu.ma(self._boll_st_s2, N), 6))
+        self._boll_st_s4.append(round(qu.ma(self._boll_st_s3, N), 6))
+        self._boll_st_s5.append(round(qu.ma(self._boll_st_s4, N), 6))
 
     def update_parting(self):
         if len(self._close) < 2:
@@ -542,26 +542,26 @@ class Option(Contract):
             return
         
         hl = self._high[-1] - self._low[-1]
-        hr = abs(self._high[-1] - op_util.ref(self._close, 1))
-        lr = abs(self._low[-1] - op_util.ref(self._close, 1))
+        hr = abs(self._high[-1] - qu.ref(self._close, 1))
+        lr = abs(self._low[-1] - qu.ref(self._close, 1))
         cur_tr = max(hl, hr, lr)
 
         if len(self._tr) == 0:
             self._tr.append(cur_tr)
         else:
-            cur_val = op_util.sma_cc(self._tr, cur_tr, _TR_DEFAULT_N, _TR_DEFAULT_M)
+            cur_val = qu.sma_cc(self._tr, cur_tr, _TR_DEFAULT_N, _TR_DEFAULT_M)
             self._tr.append(round(cur_val, 2))
 
         # hd&ld
-        self._hd.append(self._high[-1] - op_util.ref(self._high, 1))
-        self._ld.append(op_util.ref(self._low, 1) - self._low[-1])
+        self._hd.append(self._high[-1] - qu.ref(self._high, 1))
+        self._ld.append(qu.ref(self._low, 1) - self._low[-1])
 
         # dmp
         if self._hd[-1] > 0 and self._hd[-1] > self._ld[-1]:
             cur_dmp = self._hd[-1]
         else:
             cur_dmp = 0
-        cur_val = op_util.sma_cc(self._dmp, cur_dmp, _DMP_DEFAULT_N, _DMP_DEFAULT_M)
+        cur_val = qu.sma_cc(self._dmp, cur_dmp, _DMP_DEFAULT_N, _DMP_DEFAULT_M)
         self._dmp.append(round(cur_val, 2))
 
         # dmm
@@ -569,7 +569,7 @@ class Option(Contract):
             cur_dmm = self._ld[-1]
         else:
             cur_dmm = 0
-        cur_val = op_util.sma_cc(self._dmm, cur_dmm, _DMM_DEFAULT_N, _DMM_DEFAULT_M)
+        cur_val = qu.sma_cc(self._dmm, cur_dmm, _DMM_DEFAULT_N, _DMM_DEFAULT_M)
         self._dmm.append(round(cur_val, 2))
 
         # pdi
@@ -587,7 +587,7 @@ class Option(Contract):
             d_mp = 1
         else:
             d_mp = self._pdi[-1] + self._mdi[-1]
-        cur_adx = op_util.sma_cc(self._adx, 
+        cur_adx = qu.sma_cc(self._adx, 
                                  (self._pdi[-1]-self._mdi[-1])/d_mp,
                                  _ADX_DEFAULT_N, 
                                  _ADX_DEFAULT_M)
@@ -671,9 +671,9 @@ class Option(Contract):
             f_dmi[5] = '1'
 
         # extreme point check
-        if op_util.ref(self._adx, 1) > 60.0 and self._adx[-1] < 60.0:
+        if qu.ref(self._adx, 1) > 60.0 and self._adx[-1] < 60.0:
             f_dmi[6] = '-1'
-        elif op_util.ref(self._adx, 1) < -60.0 and self._adx[-1] > -60.0:
+        elif qu.ref(self._adx, 1) < -60.0 and self._adx[-1] > -60.0:
             f_dmi[6] = '1'
         else:
             f_dmi[6] = '0'

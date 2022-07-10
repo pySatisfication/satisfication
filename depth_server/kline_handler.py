@@ -21,11 +21,13 @@ else:
     import Queue
 
 import parallel as px
-from kafka import KafkaConsumer,KafkaProducer
+from kafka import KafkaConsumer,KafkaProducer,TopicPartition
 
 MQ_KEYS = ['kafka','redis','rabbitmq']
 MQ_KAFKA = 'kafka'
 KAFKA_SERVER = 'localhost:9092'
+CONSUMER_GROUP_ID = 'k_depth_c1'
+AUTO_OFFSET_RESET = 'latest'
 
 HACK_DELAY = 0.02
 NUM_HANDLER = 6
@@ -173,12 +175,14 @@ class KHandlerThread(threading.Thread):
         # 消息队列
         if self._data_source == MQ_KAFKA:
             self.producer = KafkaProducer(bootstrap_servers=[KAFKA_SERVER])
-            self.consumer = KafkaConsumer(FUTURES_DEPTH_TOPIC,
-                                          auto_offset_reset='latest',
-                                          group_id='k_depth_c1',
-                                          bootstrap_servers=['localhost:9092'])
+            self.consumer = KafkaConsumer(auto_offset_reset=AUTO_OFFSET_RESET,
+                                          group_id=CONSUMER_GROUP_ID,
+                                          bootstrap_servers=[KAFKA_SERVER])
+            self.consumer.assign([TopicPartition(FUTURES_DEPTH_TOPIC, self._hid)])
             #self.get_db_conn()
-            self.db_handler = db_util.DBHandler(config_file=config_file)
+
+        # 持久化
+        self.db_handler = db_util.DBHandler(config_file=config_file)
 
         # 休市&收盘
         # 守护线程同步事件
@@ -598,25 +602,25 @@ class KHandlerThread(threading.Thread):
             # 10:00:00
             if cur_time >= TIME_TEN and last_update_time < TIME_TEN:
                 return trading_day + ' ' + KTIME_NINE_THIRTY
-            # 10:30:00 
+            # 10:30:00
             if cur_time >= TIME_TEN_THIRTY and last_update_time < TIME_TEN_THIRTY:
                 return trading_day + ' ' + KTIME_TEN
-            # 11:00:00 
+            # 11:00:00
             if cur_time >= TIME_ELEVEN and last_update_time < TIME_ELEVEN:
                 return trading_day + ' ' + KTIME_TEN_THIRTY
-            # 11:30:00 
+            # 11:30:00
             if cur_time >= TIME_ELEVEN_THIRTY and last_update_time < TIME_ELEVEN_THIRTY:
                 return trading_day + ' ' + KTIME_ELEVEN
             # 13:30:00
             if cur_time >= TIME_THIRTEEN_THIRTY and last_update_time < TIME_THIRTEEN_THIRTY:
                 return trading_day + ' ' + KTIME_THIRTEEN
-            # 14:00:00 
+            # 14:00:00
             if cur_time >= TIME_FOURTEEN and last_update_time < TIME_FOURTEEN:
                 return trading_day + ' ' + KTIME_THIRTEEN_THIRTY
-            # 14:30:00 
+            # 14:30:00
             if cur_time >= TIME_FOURTEEN_THIRTY and last_update_time < TIME_FOURTEEN_THIRTY:
                 return trading_day + ' ' + KTIME_FOURTEEN
-            # 15:00:00 
+            # 15:00:00
             if cur_time >= TIME_FIFTEEN and last_update_time < TIME_FIFTEEN:
                 return trading_day + ' ' + KTIME_FOURTEEN_THIRTY
             # 15:15:00
@@ -754,13 +758,13 @@ class KHandlerThread(threading.Thread):
             # 10:30:00
             if cur_time >= TIME_TEN_THIRTY and last_update_time < TIME_TEN_THIRTY:
                 return trading_day + ' ' + KTIME_NINE_THIRTY
-            # 11:30:00 
+            # 11:30:00
             if cur_time >= TIME_ELEVEN_THIRTY and last_update_time < TIME_ELEVEN_THIRTY:
                 return trading_day + ' ' + KTIME_TEN_THIRTY
-            # 14:00:00 
+            # 14:00:00
             if cur_time >= TIME_FOURTEEN and last_update_time < TIME_FOURTEEN:
                 return trading_day + ' ' + KTIME_THIRTEEN
-            # 15:00:00 
+            # 15:00:00
             if cur_time >= TIME_FIFTEEN and last_update_time < TIME_FIFTEEN:
                 return trading_day + ' ' + KTIME_FOURTEEN
             # 15:15:00
@@ -854,7 +858,7 @@ class KHandlerThread(threading.Thread):
             # 11:30:00
             if cur_time >= TIME_ELEVEN_THIRTY and last_update_time < TIME_ELEVEN_THIRTY:
                 return trading_day + ' ' + KTIME_NINE_THIRTY
-            # 15:00:00 
+            # 15:00:00
             if cur_time >= TIME_FIFTEEN and last_update_time < TIME_FIFTEEN:
                 return trading_day + ' ' + KTIME_THIRTEEN
             # 15:15:00
@@ -1018,7 +1022,7 @@ class KHandlerThread(threading.Thread):
             self.update_cache(code, M_PERIOD_KEY, cur_sec, cur_dt_str, cur_dt, depth=cur_depth)
             return
 
-        # 30s 
+        # 30s
         k_time = self.check_out_sec(30, cur_depth.trading_day, end_sec, end_dt, cur_dt)
         if k_time is not None and KEY_K_30S in self._kline_cache[code]:
             k_line = self.gen_kline(code, KEY_K_30S, k_time, cur_sec, cur_dt_str, cur_dt, depth=cur_depth, close_out=close_out)

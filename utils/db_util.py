@@ -20,18 +20,21 @@ KLINE_TABLE = 'kline_test'
 
 class DBHandler(object):
     def __init__(self, config_file=None):
-        self.get_db_conn()
         self.logger = logging.getLogger(__name__)
+        self.get_db_conn()
 
     def get_db_conn(self):
-        self.conn = pymysql.connect(host=DB_HOST,
-                                    user=USRE_NAME,
-                                    passwd=USER_PASSWD,
-                                    db=DB_NAME,
-                                    port=DB_PORT,
-                                    #connect_timeout=CONN_TIMEOUT,
-                                    charset=DEFAULT_CHARSET)
-        #self.cursor = self.conn.cursor()
+        try:
+            self.conn = pymysql.connect(host=DB_HOST,
+                                        user=USRE_NAME,
+                                        passwd=USER_PASSWD,
+                                        db=DB_NAME,
+                                        port=DB_PORT,
+                                        #connect_timeout=CONN_TIMEOUT,
+                                        charset=DEFAULT_CHARSET)
+            #self.cursor = self.conn.cursor()
+        except Exception as e:
+            self.logger.error('[DBHandler]db connection failed: {}'.format(e))
 
     def _check_conn(self):
         try:
