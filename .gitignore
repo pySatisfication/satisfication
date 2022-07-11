@@ -16,3 +16,4 @@ data
 
 depth_server/*.csv
 depth_server/depth_debug*
+depth_server/kline_debug*

@@ -159,7 +159,7 @@ class KHandlerThread(threading.Thread):
 
         # 消息队列
         if self._data_source == MQ_KAFKA:
-            self.kafka_handler = KafkaHandler(config_file=config_file)
+            self.kafka_handler = KafkaHandler(b_id=self._hid, config_file=config_file)
             #self.producer = KafkaProducer(bootstrap_servers=[KAFKA_SERVER])
             #self.consumer = KafkaConsumer(auto_offset_reset=AUTO_OFFSET_RESET,
             #                              group_id=CONSUMER_GROUP_ID,
@@ -213,21 +213,8 @@ class KHandlerThread(threading.Thread):
         while True:
             self._closeout_event.wait()
             while self._closeout_event.isSet():
-                time.sleep(0.001)
+                time.sleep(0.01)
 
-                # 持久化
-                if self._data_source == MQ_KAFKA:
-                    try:
-                        k_msg = self._db_queue.get(timeout=0.001)
-                        if k_msg:
-                            self.db_handler.insert_one(k_msg)
-                            # 离线debug是否获取到kline
-                            with open('depth_debug_' + str(self._hid), 'a') as w:
-                                w.write(str(k_msg) + '\n')
-                    except Exception as e:
-                        pass
-
-                # 休市&停盘&收盘
                 now_dt = datetime.datetime.now()
                 now_dt_str = dt_util.str_from_dt(now_dt)    # 20220522 15:15:00
                 #now_date = now_dt_str.split(' ')[0]         # 20220522
@@ -241,6 +228,24 @@ class KHandlerThread(threading.Thread):
                 if now_time[-2:] == '00' and round(now_dt.microsecond/1000) == 1:
                     self.logger.info('[gen_cloing_kline]now_time:{}'.format(now_time))
 
+                # 持久化
+                save_times = [TIME_THREE, TIME_TWELVE, TIME_FIFTEEN_THIRTY]
+                if self._data_source == MQ_KAFKA and now_time in save_times:
+                    self.logger.info('[gen_cloing_kline]before, handler: {}, queue size: {}'.format(self._hid, self._db_queue.qsize()))
+                    while True:
+                        try:
+                            k_msg = self._db_queue.get(timeout=3)
+                            if k_msg:
+                                self.db_handler.insert_one(k_msg)
+                                # 离线debug是否获取到kline
+                                with open('kline_debug_' + str(self._hid), 'a') as w:
+                                    w.write(str(k_msg) + '\n')
+                        except Exception as e:
+                            self.logger.info('[gen_cloing_kline]kline data has been written into db, time: {}'.format(now_time))
+                            break
+                    self.logger.info('[gen_cloing_kline]after, handler: {}, queue size: {}'.format(self._hid, self._db_queue.qsize()))
+
+                # 休市&停盘&收盘
                 mock_time = '20:34:00'
                 suspend_close_times = [TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
                                        TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN,
@@ -347,12 +352,10 @@ class KHandlerThread(threading.Thread):
             while self._event.isSet():
                 if self._data_source == MQ_KAFKA:
                     for msg_data in self.kafka_handler.consume():
-                        if msg_data is None or len(msg_data.value) == 0:
-                            continue
-                        cur_msg = msg_data.value.decode('utf-8').split(',')
+                        depth_msg = msg_data.value.decode('utf-8').split(',')
 
                         start = time.time()
-                        depth = Depth(cur_msg, start)
+                        depth = Depth(depth_msg, start)
                         if not self.check_data_valid(depth):
                             continue
 
@@ -368,7 +371,7 @@ class KHandlerThread(threading.Thread):
                             cnt_id = 0
                 else:
                     while True:
-                        # 阻塞等待消息
+                        # 阻塞模式，不用捕捉空异常
                         depth = self._local_queue.get()
 
                         # depth计算
