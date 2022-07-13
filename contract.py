@@ -42,7 +42,7 @@ class EventPoint(object):
     def event_name(self):
         return self._event
 
-    def print(self):
+    def __str__(self):
         return 'event:{},start:{},end:{},close_idx:{}'.format(
             self._event, self._start_time, self._end_time, self._close_idx)
 
@@ -60,8 +60,8 @@ class PartingPoint(EventPoint):
         self._valid = valid
 
 class Contract(object):
-    def __init__(self, c_code):
-        self._c_code = c_code
+    def __init__(self, code):
+        self._code = code
 
         # last_time
         self._time = []
@@ -71,10 +71,9 @@ class Contract(object):
         self._high = []
         self._low = []
         self._close = []
-        self._volumes = []
-        self._holds = []
-        self._amounts = []
-        self._avg_prices = []
+        self._volume = []
+        self._open_interest = []
+        self._turnover = []
 
         # ma
         #self._ma = []
@@ -131,13 +130,28 @@ class Contract(object):
         self._hh_debug = []
         self._ll_debug = []
 
+        # dkcd
+        self._a0 = []
+        self._a1 = []
+        self._a2 = []
+        self._dkcd_l1 = []
+        self._dkcd_l2 = []
+        self._b1 = []
+        self._dkcd_x3l1 = []
+        self._dkcd_x3l2 = []
+
         self._stg_boll = []
         self._stg_par = []
         self._stg_dmi = []
+        # 普通背离
         self._stg_dev = []
+        # 隔山背离
         self._stg_sep_dev = []
+        # 内部背离
         self._stg_in_dev = []
+        # 内部隔山背离
         self._stg_in_sep_dev = []
+        # 顾比均线
         self._stg_guppy = []
         self._stg_cross_valid = []
 
@@ -281,7 +295,7 @@ class Contract(object):
 class Option(Contract):
     def __init__(self, code):
         assert code is not None
-        super(Option, self).__init__(c_code=code)
+        super(Option, self).__init__(code=code)
         self._type = 'option'
         self._cur_t_data = None
         self._last_par_type = 0
@@ -298,8 +312,8 @@ class Option(Contract):
             raise ValueError('value error')
 
     @property
-    def c_code(self):
-        return self._c_code
+    def code(self):
+        return self._code
 
     def update_ct_data(self):
         assert self.t_data.open is not None and isinstance(self.t_data.open, float)
@@ -311,12 +325,16 @@ class Option(Contract):
         self._high.append(self.t_data.high)
         self._low.append(self.t_data.low)
         self._close.append(self.t_data.close)
-        self._volumes.append(self.t_data.volumes)
-        self._holds.append(self.t_data.holds)
-        self._amounts.append(self.t_data.amounts)
-        self._avg_prices.append(self.t_data.avg_prices)
+        self._volume.append(self.t_data.volume)
+        self._open_interest.append(self.t_data.open_interest)
+        self._turnover.append(self.t_data.turnover)
 
     def update_sp_line(self, N=20):
+        """
+        支撑压力线
+        :param N:
+        :return:
+        """
         if len(self._low) == 1:
             self._llv.append(self._low[-1])
             self._hhv.append(self._high[-1])
@@ -327,7 +345,7 @@ class Option(Contract):
 
     def update_ema(self):
         """
-        calculate ema in sevaral days
+        calculate ema(Exponential moving average) in sevaral days
         """
         assert len(self._close) > 0, \
             'close sequence must be non-empty'
@@ -341,6 +359,11 @@ class Option(Contract):
         self._ema26.append(round(cur_val, 2))
 
     def update_macd(self):
+        """
+        MACD: 根据快线和慢线的交错形态
+        输入: ema12和ema26
+        :return:
+        """
         assert len(self._ema12) > 0 and len(self._ema26) > 0
         # diff
         self._diff.append(round(self._ema12[-1] - self._ema26[-1], 2))
@@ -414,6 +437,11 @@ class Option(Contract):
         self._boll_st_s5.append(round(qu.ma(self._boll_st_s4, N), 6))
 
     def update_parting(self):
+        """
+        分型算法：根据原始K计算分型K
+        输入：原始K的high和low
+        :return:
+        """
         if len(self._close) < 2:
             self._hh.append(self._high[-1])
             self._ll.append(self._low[-1])
@@ -464,21 +492,25 @@ class Option(Contract):
         h_2, h_3 = self._hh[-1], self._high[-1]
         l_2, l_3 = self._ll[-1], self._low[-1]
         if (h_2 < h_3 or l_2 > l_3) and (h_2 > h_3 or l_2 < l_3):
-            # case 0
+            # case 0: 分型K与原始K不存在包含关系
             self._hh.append(h_3)
             self._ll.append(l_3)
             self._hh_debug.append(h_3)
             self._ll_debug.append(l_3)
         else:
+            # 分型K与原始K存在包含关系
             if len(self._hh) < 2:
+                # 当前分型K队列长度为1
                 self._hh.append(h_3)
                 self._ll.append(l_3)
                 self._hh_debug.append(h_3)
                 self._ll_debug.append(l_3)
             else:
                 h1_idx = len(self._hh) - 2
+                # 遍历找到当前分型k左侧第一根不为-1的分型k
                 while(self._hh[h1_idx] < 0.0 and h1_idx > 0):
                     h1_idx -= 1
+                # 如果左边全部为-1
                 if self._hh[h1_idx] == -1.0:
                     self._hh.append(h_3)
                     self._ll.append(l_3)
@@ -500,11 +532,14 @@ class Option(Contract):
                         self._hh_debug.append(min(h_2, h_3))
                         self._ll_debug.append(min(l_2, l_3))
                     else:
-                        # special judgement
+                        # 特殊判断：往前遍历找到存在包含关系的分型K继续判断
                         n = h1_idx - 1
                         t_hh3 = h_3
                         t_ll3 = l_3
                         while n > 0:
+                            if self._hh[n] == -1.0:
+                                n -= 1
+                                continue
                             if (h_2 > self._hh[n] and l_2 >= self._ll[-n]) or \
                                (h_2 >= self._hh[n] and l_2 > self._ll[-n]):
                                 t_hh3 = max(h_2, h_3)
@@ -593,6 +628,37 @@ class Option(Contract):
                                  _ADX_DEFAULT_M)
         self._adx.append(round(cur_adx, 2))
 
+    def update_dkcd_1(self):
+        cur_a0 = qu.ema_cc(self._a0, self._close[-1], 2)
+        self._a0.append(round(cur_a0, 2))
+
+        cur_a1 = qu.ema_cc(self._a1, self._a0[-1], 14)
+        self._a1.append(round(cur_a1, 2))
+
+        if len(self._a1) < 5:
+            cur_a2 = 0.0
+            self._a2.append(cur_a2)
+        else:
+            m = qu.slope(self._a1[-5:], 5)
+            cur_a2 = m[1] * 4 + self._close[-1]
+            self._a2.append(round(cur_a2, 2))
+
+        cur_dkcd_l1 = qu.ema_cc(self._dkcd_l1, cur_a2, 10)
+        self._dkcd_l1.append(round(cur_dkcd_l1, 2))
+
+        cur_dkcd_l2 = qu.ema_cc(self._dkcd_l2, cur_dkcd_l1, 2)
+        self._dkcd_l2.append(round(cur_dkcd_l2, 2))
+
+    def update_dkcd_2(self):
+        cur_b1 = qu.slope(self._b1, self._close[-1], 24) * 23 + self._close[-1]
+        self._b1.append(round(cur_b1, 2))
+
+        cur_dkcd_x3l1 = qu.ema_cc(self._dkcd_x3l1, cur_b1, 48)
+        self._dkcd_x3l1.append(round(cur_dkcd_x3l1, 2))
+
+        cur_dkcd_x3l2 = qu.ema_cc(self._dkcd_x3l2, cur_dkcd_x3l1, 2)
+        self._dkcd_x3l2.append(round(cur_dkcd_x3l2, 2))
+
     def check_boll(self):
         f_boll = ['0']*4
         f_boll[0] = str(self._trend_to_rise[-1])
@@ -603,7 +669,7 @@ class Option(Contract):
 
     def check_parting(self):
         '''
-        前一时刻出现的顶/底值，记录在当前时刻，因为只有到当前
+        前一时刻出现的顶/底值，记录在当前时刻
         '''
         f_par = ['0']
         if len(self._close) <= 2:
@@ -646,9 +712,9 @@ class Option(Contract):
         s1_2, s5_2 = self._boll_st_s1[-2], self._boll_st_s5[-2]
         s1_1, s5_1 = self._boll_st_s1[-1], self._boll_st_s5[-1]
         if s1_2 > s5_2 and s1_1 < s5_1:
-            f_guppy[1] = '-1';
+            f_guppy[1] = '-1'
         elif s1_2 < s5_2 and s1_1 > s5_1:
-            f_guppy[1] = '1';
+            f_guppy[1] = '1'
 
         return f_guppy
 
@@ -760,6 +826,7 @@ class Option(Contract):
 
     def check_dev(self):
         """
+        背离:
         return:
             an array with length of 8,
             index 0~3       # bottom divergence
@@ -769,16 +836,12 @@ class Option(Contract):
         f_dev = ['0']*8
         # 普通隔山背离
         f_sep_dev = ['0']*8
-        # 内部背离
-        f_in_dev = ['0']*4
-        # 内部隔山背离
-        f_in_sep_dev = ['0']*4
         # 金叉死叉有效性
         f_cross_valid = ['0']
 
         if len(self._diff) == 1:
             self._cross.append(0)
-            return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+            return f_dev, f_sep_dev, f_cross_valid
 
         if self._diff[-2] < self._dea[-2] and self._diff[-1] > self._dea[-1]:     # jincha
             # 1. record
@@ -788,7 +851,7 @@ class Option(Contract):
             # 2. 普通底背离
             if len(self._cross_points) < 4 or not (self._cross_points[-2].event_name == 'D' and \
                 self._cross_points[-3].event_name == 'K' and self._cross_points[-4].event_name == 'D'):
-                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_dev, f_sep_dev, f_cross_valid
 
             f_dev[0:4] = self.make_judge_jincha(self._cross_points[-2], self._cross_points[-1], 
                                                 self._cross_points[-4], self._cross_points[-3])
@@ -803,10 +866,10 @@ class Option(Contract):
 
             # 4. 隔山底背离
             if len(self._cross_points) < 6 or not (self._cross_points[-5].event_name == 'K' and self._cross_points[-6].event_name == 'D'):
-                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_dev, f_sep_dev, f_cross_valid
 
             f_sep_dev[0:4] = self.make_judge_jincha(self._cross_points[-2], self._cross_points[-1], 
-                                               self._cross_points[-6], self._cross_points[-5])
+                                                    self._cross_points[-6], self._cross_points[-5])
         elif self._diff[-2] > self._dea[-2] and self._diff[-1] < self._dea[-1]:   # sicha
             # 1. record
             self._cross_points.append(CrossPoint('D', self._time[-2], self._time[-1], len(self._close) - 1))
@@ -815,7 +878,7 @@ class Option(Contract):
             # 2. 普通顶背离
             if len(self._cross_points) < 4 or not (self._cross_points[-2].event_name == 'K' and \
                 self._cross_points[-3].event_name == 'D' and self._cross_points[-4].event_name == 'K'):
-                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_dev, f_sep_dev, f_cross_valid
 
             f_dev[4:8] = self.make_judge_sicha(self._cross_points[-2], self._cross_points[-1], 
                                                self._cross_points[-4], self._cross_points[-3])
@@ -830,12 +893,22 @@ class Option(Contract):
 
             # 4. 隔山顶背离
             if len(self._cross_points) < 6 or not (self._cross_points[-5].event_name == 'D' and self._cross_points[-6].event_name == 'K'):
-                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_dev, f_sep_dev, f_cross_valid
 
             f_sep_dev[4:8] = self.make_judge_sicha(self._cross_points[-2], self._cross_points[-1], 
-                                              self._cross_points[-6], self._cross_points[-5])
+                                                   self._cross_points[-6], self._cross_points[-5])
         else:
             self._cross.append(0)
+        return f_dev, f_sep_dev, f_cross_valid
+
+    def check_in_dev(self):
+        # 内部背离
+        f_in_dev = ['0']*4
+        # 内部隔山背离
+        f_in_sep_dev = ['0']*4
+
+        if len(self._diff) == 1:
+            return f_in_dev, f_in_sep_dev
 
         # 内部背离
         if len(self._cross_points) > 0 and self._cross_points[-1].event_name == 'D':     # sc
@@ -843,7 +916,7 @@ class Option(Contract):
 
             # 当前非分型点
             if len(par_points) > 0 and par_points[-1].end_time != self.t_data.time:
-                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_in_dev, f_in_sep_dev
 
             # 内部普通底背离
             if len(par_points) == 2:
@@ -853,7 +926,7 @@ class Option(Contract):
                 l1_from, l1_to = par_points[-3].close_idx, par_points[-2].close_idx
                 l2_from, l2_to = par_points[-2].close_idx, par_points[-1].close_idx
             elif len(par_points) < 2:
-                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_in_dev, f_in_sep_dev
 
             f_in_dev[0:2] = self.in_bottom_dev(l1_from, l1_to, l2_from, l2_to)
 
@@ -865,7 +938,7 @@ class Option(Contract):
                 l1_in_from, l1_in_to = par_points[-4].close_idx, par_points[-3].close_idx
                 l2_in_from, l2_in_to = par_points[-2].close_idx, par_points[-1].close_idx
             elif len(par_points) < 3:
-                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_in_dev, f_in_sep_dev
 
             f_in_sep_dev[0:2] = self.in_bottom_dev(l1_in_from, l1_in_to, l2_in_from, l2_in_to)
         elif len(self._cross_points) > 0 and self._cross_points[-1].event_name == 'K':   # jc
@@ -873,7 +946,7 @@ class Option(Contract):
 
             # 当前非分型点
             if len(par_points) > 0 and par_points[-1].end_time != self.t_data.time:
-                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_in_dev, f_in_sep_dev
 
             # 内部普通顶背离
             if len(par_points) == 2:
@@ -883,7 +956,7 @@ class Option(Contract):
                 h1_from, h1_to = par_points[-3].close_idx, par_points[-2].close_idx
                 h2_from, h2_to = par_points[-2].close_idx, par_points[-1].close_idx
             elif len(par_points) < 2:
-                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_in_dev, f_in_sep_dev
 
             f_in_dev[2:4] = self.in_top_dev(h1_from, h1_to, h2_from, h2_to)
 
@@ -895,11 +968,10 @@ class Option(Contract):
                 h1_in_from, h1_in_to = par_points[-4].close_idx, par_points[-3].close_idx
                 h2_in_from, h2_in_to = par_points[-2].close_idx, par_points[-1].close_idx
             elif len(par_points) < 3:
-                return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+                return f_in_dev, f_in_sep_dev
 
             f_in_sep_dev[2:4] = self.in_top_dev(h1_in_from, h1_in_to, h2_in_from, h2_in_to)
-
-        return f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid
+        return f_in_dev, f_in_sep_dev
 
     def iterate(self, data):
         assert isinstance(data, dict)
@@ -923,10 +995,12 @@ class Option(Contract):
         self.update_macd()
         self.update_dmi()
 
-        # debug ema
-        if data.time == '202110181459':
-            print('final close:', self._close)
-            print('final ema12:', self._ema12)
+        self.update_slope()
+
+        ## debug ema
+        #if data.time == '202110181459':
+        #    print('final close:', self._close)
+        #    print('final ema12:', self._ema12)
 
         return self.clct_all_var()
 
@@ -944,7 +1018,8 @@ class Option(Contract):
         self._stg_dmi.append(''.join(f_dmi))
         
         # dev
-        f_dev, f_sep_dev, f_in_dev, f_in_sep_dev, f_cross_valid = self.check_dev()
+        f_dev, f_sep_dev, f_cross_valid = self.check_dev()
+        f_in_dev, f_in_sep_dev = self.check_in_dev()
         self._stg_dev.append(''.join(f_dev))
         self._stg_sep_dev.append(''.join(f_sep_dev))
         self._stg_in_dev.append(''.join(f_in_dev))
@@ -1013,7 +1088,7 @@ if __name__ == '__main__':
         for line in t_data:
             items = line.split(',')
             d_data = edict(m_code = int(items[0]), 
-                           c_code = items[1],
+                           code = items[1],
                            time = items[2],
                            #open = float(items[3]),
                            #high = float(items[4]),
@@ -1031,12 +1106,12 @@ if __name__ == '__main__':
 
             # replace
 
-            c_code = items[1]
-            if c_code in ct_agent:
-                cc = ct_agent[c_code]
+            code = items[1]
+            if code in ct_agent:
+                cc = ct_agent[code]
             else:
-                cc = Option(c_code)
-                ct_agent[c_code] = cc
+                cc = Option(code)
+                ct_agent[code] = cc
             #t_data = []
 
             cc.iterate(d_data)

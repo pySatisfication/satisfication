@@ -134,6 +134,12 @@ def boll(x, N=20, M=2):
 
 @op_wrapper
 def ref(x, N):
+    """
+    调用前一个x项
+    :param x:
+    :param N:
+    :return:
+    """
     assert len(x) > 0
 
     if len(x) < N + 1:
@@ -152,7 +158,7 @@ def ma(x, N):
     """
     # 当前的k线数不足N根，函数返回空值
     if len(x) < N:
-        return None
+        return 0.0
 
     return np.mean(x[len(x)-N:])
 

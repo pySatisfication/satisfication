@@ -15,7 +15,6 @@ USRE_NAME = 'root'
 USER_PASSWD = 'p12345'
 DB_NAME = 'db_qt_0703'
 DEFAULT_CHARSET = 'utf8'
-KLINE_TABLE = 'kline_test'
 #CONN_TIMEOUT = 10
 
 class DBHandler(object):

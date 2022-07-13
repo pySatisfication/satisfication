@@ -7,14 +7,16 @@ from kline import KLine
 from kafka import KafkaConsumer,KafkaProducer,TopicPartition
 
 KAFKA_SERVER = 'localhost:9092'
-CONSUMER_GROUP_ID = 'k_depth_c2'
-AUTO_OFFSET_RESET = 'latest'
-
-FUTURES_DEPTH_TOPIC = 'FuturesDepthDataTest2'
-FUTURES_KLINE_TPOIC = 'FuturesKLineTest'
 
 class KafkaHandler(object):
-    def __init__(self, b_id, config_file=None, debug=False):
+    def __init__(self,
+                 b_id,
+                 producer_topic,
+                 consumer_group_id,
+                 consumer_auto_offset_reset,
+                 consumer_topic,
+                 config_file=None,
+                 debug=False):
         self._bid = b_id
         self.logger = logging.getLogger(__name__)
         if debug:
@@ -22,8 +24,15 @@ class KafkaHandler(object):
             formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             kzt.setFormatter(formatter)
             self.logger.addHandler(kzt)
-        self.build_consumer()
-        self.build_producer()
+
+        self._producer_topic = producer_topic
+        self._group_id = consumer_group_id
+        self._auto_offset_reset = consumer_auto_offset_reset
+        self._consumer_topic = consumer_topic
+        if consumer_topic:
+            self.build_consumer()
+        if producer_topic:
+            self.build_producer()
 
     def build_producer(self):
         self.producer = KafkaProducer(bootstrap_servers=[KAFKA_SERVER])
@@ -32,10 +41,10 @@ class KafkaHandler(object):
 
     def build_consumer(self):
         # consumer
-        self.consumer = KafkaConsumer(auto_offset_reset=AUTO_OFFSET_RESET,
-                                      group_id=CONSUMER_GROUP_ID,
+        self.consumer = KafkaConsumer(auto_offset_reset=self._auto_offset_reset,
+                                      group_id=self._group_id,
                                       bootstrap_servers=[KAFKA_SERVER])
-        self.consumer.assign([TopicPartition(FUTURES_DEPTH_TOPIC, self._bid)])
+        self.consumer.assign([TopicPartition(self._consumer_topic, self._bid)])
 
         if self.consumer.bootstrap_connected():
             #print('build consumer success, handler:%s' % self._bid)
@@ -64,7 +73,7 @@ class KafkaHandler(object):
         #        self.logger.error('[KafkaHandler]Unable to connect to the server. prepare to exit.')
         #        return
         # 正常连接
-        future = self.producer.send(FUTURES_KLINE_TPOIC,
+        future = self.producer.send(self._producer_topic,
                                     str(k_item).encode('utf-8'),
                                     partition=self._bid)
         try:

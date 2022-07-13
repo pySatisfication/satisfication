@@ -57,17 +57,16 @@ class SimpleStrategy(BaseStrategy):
             #logger.info('[strategy]new contract: {}'.format(c_code))
             self._ct_data[c_code] = {period : item}
 
-        d_item = edict(m_code=0,
-                       c_code=data.code,
+        d_item = edict(m_code='0',
+                       code=data.code,
                        time=data.k_time,
                        open=float(data.open),
                        high=float(data.high),
                        low=float(data.low),
                        close=float(data.close),
-                       volumes=float(data.volume),
-                       holds=0.0,
-                       amounts=0.0,
-                       avg_prices=0.0,
+                       volume=float(data.volume),
+                       open_interest=float(data.open_interest),
+                       amounts=float(data.turnover),
                        period=data.period_type)
 
         # step 1. update transaction data and base indicators

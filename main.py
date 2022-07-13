@@ -16,6 +16,7 @@ if sys.version > '3':
 else:
     import Queue
 
+from utils import dt_util,db_util,kafka_util
 from depth_server.kline import KLine
 
 import strategy as stg
@@ -28,17 +29,11 @@ _CONSUMPTION_DELAY = 0.05
 _DEFAULT_PRODUCER_NUM = 1
 _DEFAULT_CONSUMER_NUM = 3
 
-FUTURES_KLINE_TPOIC = 'FuturesKLineTest'
-
 MQ_KAFKA = 'kafka'
-MQ_GROUP_ID = 'kindex_c1'
-KAFKA_SERVER = 'localhost:9092'
-KAFKA_OFFSET = 'earliest'
 
 HACK_DELAY = 0.2
 NUM_KLINE_HANDLER = 6
-QUEUE_SIZE = 500000
-queues = [Queue.Queue(QUEUE_SIZE) for i in range(NUM_KLINE_HANDLER)]
+LOCAL_QUEUE_SIZE = 1000000
 
 # logger
 index_config_file = 'conf/index_logger_config.json'
@@ -67,6 +62,10 @@ M_PD_BUCKET = {
     '7_15':5,
     '7_30':3,
 }
+
+CONSUMER_GROUP_ID = 'index_kline_g1'
+AUTO_OFFSET_RESET = 'latest'
+FUTURES_KLINE_TPOIC = 'FuturesKLineTest'
 
 def parse_args():
     """
@@ -212,31 +211,51 @@ class TransDProducer(px.Producer):
                     print('produced data:', p_cnt)
                 yield b_id, item
 
+SUPPORT_STG_NAMES = ['simple']
 class TransDConsumer(threading.Thread):
-    def __init__(self, b_id, event, data_source):
+    def __init__(self,
+                 b_id,
+                 t_control_event,
+                 data_source,
+                 local_queue,
+                 stg_name = 'simple',
+                 config_file='conf/index_logger_config.json'):
         threading.Thread.__init__(self)
         self._bid = b_id
-        self._event = event
+        self._t_control_event = t_control_event
         self._data_source = data_source
-        self._stg = stg.SimpleStrategy('option_stg_v1')
+
+        # 初始化策略
+        self.init_stgs()
+        self._valid_stg = self._stgs[stg_name]
+
+        if self._data_source == MQ_KAFKA:
+            # kafka处理器，无生产者
+            self.kafka_handler = kafka_util.KafkaHandler(
+                b_id=self._hid,
+                producer_topic=None,
+                consumer_group_id=CONSUMER_GROUP_ID,
+                consumer_auto_offset_reset=AUTO_OFFSET_RESET,
+                consumer_topic=FUTURES_KLINE_TPOIC,
+                config_file=config_file)
+        else:
+            self._local_queue = local_queue
+
+    def init_stgs(self):
+        self._stgs = {}
+        for stg_name in SUPPORT_STG_NAMES:
+            if stg_name == 'simple':
+                self._stgs[stg_name] = stg.SimpleStrategy('option_stg_v1')
 
     def run(self):
         try:
-            print('consumer waiting...:', self._bid)
-            self._event.wait()
+            print('consumer start to run...:', self._bid)
+            self._t_control_event.wait()
 
             cnt_id = 0
-            while self._event.isSet():
-                print('consumer starting...:', self._bid)
-                try:
-                    consumer = KafkaConsumer(FUTURES_KLINE_TPOIC,
-                                             auto_offset_reset=KAFKA_OFFSET,
-                                             group_id=MQ_GROUP_ID,
-                                             session_timeout_ms=30000,
-                                             bootstrap_servers= [KAFKA_SERVER])
-                    for msg_data in consumer:
-                        if msg_data is None or len(msg_data.value) == 0:
-                            continue
+            while self._t_control_event.isSet():
+                if self._data_source == MQ_KAFKA:
+                    for msg_data in self.kafka_handler.consume():
                         k_data = msg_data.value.decode('utf-8').split(',')
                         if len(k_data) < 10:
                             logger.error('[run]data length error: {}'.format(k_data))
@@ -249,23 +268,22 @@ class TransDConsumer(threading.Thread):
                             cnt_id -= 1000000
                         if cnt_id % 100 == 0:
                             logger.info('[run]consumer: {}, processed: {}'.format(self._bid, cnt_id))
+                else:
+                    while True:
+                        # 阻塞模式，不用捕捉空异常
+                        kline = self._local_queue.get()
 
-                    ## 阻塞等待消息
-                    #item = queues[self._hid].get()
+                        # depth计算
+                        self.consume(kline)
 
-                    # depth计算
-                    #self.consume(item)
-
-                    # 计时
-                    #end = time.time()
-                    #cnt_id += 1
-                    #if cnt_id % 1000 == 0:
-                    #    logger.info("[run]code:{}, bucket_id:{}, cost of depth:{}".format(
-                    #        item.instrument_id, self._hid, end - item.sys_time))
-                    #if cnt_id > 10000000:
-                    #    cnt_id = 0
-                except Queue.Empty:
-                    pass
+                        # 计时
+                        end = time.time()
+                        cnt_id += 1
+                        if cnt_id % 1000 == 0:
+                            self.logger.info("[run]code:{}, bucket_id:{}, cost of depth:{}".format(
+                                kline.code, self._hid, end - kline.sys_time))
+                        if cnt_id > 10000000:
+                            cnt_id = 0
         except Exception as error:
             logger.warning("cannot continue to consume: %s", error)
             exc_info = sys.exc_info()
@@ -274,7 +292,7 @@ class TransDConsumer(threading.Thread):
                 logger.warning("%-23s:%s '%s' in %s", filename, linenum, source, funcname)
 
     def consume(self, item):
-        j_idx_str = self._stg.step(item)
+        j_idx_str = self._valid_stg.step(item)
         #logger.info("[consume]index step: {}".format(j_idx_str))
 
 def init_data_task(root_path):
@@ -299,7 +317,7 @@ def kline_step(data, sys_time=None):
 
     b_id = b_offset % NUM_KLINE_HANDLER
     # 广播消息
-    queues[b_id].put(kline, True)
+    local_queues[b_id].put(kline, True)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
@@ -315,33 +333,34 @@ if __name__ == '__main__':
     # k线数据源
     if args.data_source == MQ_KAFKA:
         data_source = MQ_KAFKA
+        local_queues = [None for i in range(NUM_KLINE_HANDLER)]
     else:
         data_source = args.depth_source.split('/')[-1].split('.')[0]
+        local_queues = [Queue.Queue(LOCAL_QUEUE_SIZE) for i in range(NUM_KLINE_HANDLER)]
 
     kindex_event = threading.Event()
     consumers = []
     for consumer_id in range(NUM_KLINE_HANDLER):
-        consumer = TransDConsumer(consumer_id, kindex_event, data_source)
+        consumer = TransDConsumer(consumer_id,
+                                  kindex_event,
+                                  data_source,
+                                  local_queues[consumer_id])
         consumers.append(consumer)
         consumer.start()
     for consumer in consumers:
         consumer.join(HACK_DELAY)
     kindex_event.set()
 
-    #if args.data_source == MQ_KAFKA:
-    #    print('depth_source is kafka...')
-    #    consumer = KafkaConsumer(FUTURES_KLINE_TPOIC, auto_offset_reset='latest', group_id='kindex_c1', bootstrap_servers= ['localhost:9092'])
-    #    for msg_data in consumer:
-    #        assert msg_data is not None
-    #        if msg_data is None or len(msg_data.value) == 0:
-    #            continue
-    #        kline_step(msg_data.value.decode('utf-8'), time.time())
+    if args.depth_source == MQ_KAFKA:
+        pass
+    else:
+        with open(args.data_source, 'r') as f:
+            for line in f.readlines():
+                line = line.strip()
+                assert len(line) != 0
 
-    #        #if args.debug:
-    #        #    with open('depth_debug', 'a') as w:
-    #        #        w.write(msg_data.value.decode('utf-8') + '\n')
-    #else:
-    #    pass
+                kline_step(line, time.time())
+        print('File read ended!!!')
 
     ## create producer and consumers
     #producers = []
