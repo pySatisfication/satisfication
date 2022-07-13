@@ -7,6 +7,7 @@ from kline import KLine
 from kafka import KafkaConsumer,KafkaProducer,TopicPartition
 
 KAFKA_SERVER = 'localhost:9092'
+AUTO_COMMIT_INTERVAL_MS = 100
 
 class KafkaHandler(object):
     def __init__(self,
@@ -43,7 +44,8 @@ class KafkaHandler(object):
         # consumer
         self.consumer = KafkaConsumer(auto_offset_reset=self._auto_offset_reset,
                                       group_id=self._group_id,
-                                      bootstrap_servers=[KAFKA_SERVER])
+                                      bootstrap_servers=[KAFKA_SERVER],
+                                      auto_commit_interval_ms=AUTO_COMMIT_INTERVAL_MS)
         self.consumer.assign([TopicPartition(self._consumer_topic, self._bid)])
 
         if self.consumer.bootstrap_connected():
