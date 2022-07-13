@@ -213,7 +213,7 @@ class KHandlerThread(threading.Thread):
         while True:
             self._closeout_event.wait()
             while self._closeout_event.isSet():
-                time.sleep(0.01)
+                time.sleep(1)
 
                 now_dt = datetime.datetime.now()
                 now_dt_str = dt_util.str_from_dt(now_dt)    # 20220522 15:15:00
@@ -225,7 +225,7 @@ class KHandlerThread(threading.Thread):
                 #    self._closeout_event.clear()
 
                 # 心跳检测
-                if now_time[-2:] == '00' and round(now_dt.microsecond/1000) == 1:
+                if now_time[-2:] == '00':
                     self.logger.info('[gen_cloing_kline]now_time:{}'.format(now_time))
 
                 # 持久化
