@@ -10,11 +10,10 @@ import argparse
 import pymysql
 
 sys.path.append("..")
-from utils import dt_util,db_util
+from utils import dt_util,db_util,kafka_util
 from depth import Depth
 from kline import KLine
 from tran_time_helper import *
-from kafka_handler import KafkaHandler
 
 if sys.version > '3':
     import queue as Queue
@@ -24,8 +23,15 @@ else:
 import parallel as px
 from kafka import KafkaConsumer,KafkaProducer,TopicPartition
 
-MQ_KEYS = ['kafka','redis','rabbitmq']
+# kafka
 MQ_KAFKA = 'kafka'
+CONSUMER_GROUP_ID = 'k_depth_c2'
+AUTO_OFFSET_RESET = 'latest'
+FUTURES_DEPTH_TOPIC = 'FuturesDepthDataTest2'
+FUTURES_KLINE_TPOIC = 'FuturesKLineTest'
+
+# mysql
+KLINE_TABLE = 'kline'
 
 HACK_DELAY = 0.02
 NUM_HANDLER = 6
@@ -159,7 +165,13 @@ class KHandlerThread(threading.Thread):
 
         # 消息队列
         if self._data_source == MQ_KAFKA:
-            self.kafka_handler = KafkaHandler(b_id=self._hid, config_file=config_file)
+            self.kafka_handler = kafka_util.KafkaHandler(
+                b_id = self._hid,
+                producer_topic = FUTURES_KLINE_TPOIC,
+                consumer_group_id = CONSUMER_GROUP_ID,
+                consumer_auto_offset_reset = AUTO_OFFSET_RESET,
+                consumer_topic = FUTURES_DEPTH_TOPIC,
+                config_file=config_file)
             #self.producer = KafkaProducer(bootstrap_servers=[KAFKA_SERVER])
             #self.consumer = KafkaConsumer(auto_offset_reset=AUTO_OFFSET_RESET,
             #                              group_id=CONSUMER_GROUP_ID,
