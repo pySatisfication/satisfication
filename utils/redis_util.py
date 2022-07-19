@@ -1,3 +1,5 @@
+import time
+import json
 import sys
 from redis import StrictRedis
 from dateutil import parser
@@ -63,6 +65,31 @@ class RedisHandler(object):
 
 if __name__ == '__main__':
     rd = RedisHandler()
+
+    cts = rd.get(REDIS_KEY_VALID_CT)
+    print(cts)
+    if not cts:
+        pass
+
+    code = 'sc2207'
+    val = {"key1":"value","key2":"value2"}
+    a = {code:val}
+    print(json.dumps(a))
+    exit(0)
+
+    # write
+    start1 = time.time()
+    for ct in cts.split(','):
+        rd.set('rt_depth_' + ct, '{"key1":"value","key2":"value2"}')
+    end1 = time.time()
+    print("t1:", end1-start1)
+
+    start2 = time.time()
+    for ct in cts.split(','):
+        j = json.loads(rd.get('rt_depth_' + ct))
+        print(j["key1"])
+    end2 = time.time()
+    print("t2:", end2-start2)
 
     print(rd.get('key_none'))
     exit(0)
