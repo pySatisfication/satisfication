@@ -149,6 +149,8 @@ class KHandlerThread(threading.Thread):
 
         # 时间处理工具包
         self._tth = TranTimeHelper()
+
+        self._cbh = CTBaseHelper()
         # 记录临时k线
         self._k_lines = []
 
@@ -428,8 +430,8 @@ class KHandlerThread(threading.Thread):
 
                         # detph缓存
                         start2 = time.time()
-                        key = 'rt_depth_' + depth.instrument_id
-                        base_d = self._cbh.get_base_d()
+                        key = redis_util.REDIS_KEY_DEPTH_PREFIX + depth.instrument_id
+                        base_d = self._cbh.get_base_d(depth.code_prefix)
                         if base_d:
                             depth.c_name = base_d.c_name
                             depth.ct_unit = base_d.ct_unit
@@ -438,7 +440,7 @@ class KHandlerThread(threading.Thread):
 
                         cnt_id += 1
                         if cnt_id % 1000 == 0:
-                            self.logger.info("[run]code:{}, bucket_id:{}, cost of cal:{}, cost of caching:{}".format(
+                            self.logger.info("[run]code:{}, bucket_id:{}, cost of cal:{}, cost of depth caching:{}".format(
                                 depth.instrument_id, self._hid, end1 - start1, end2 - start2))
                         if cnt_id > 10000000:
                             cnt_id = 0
