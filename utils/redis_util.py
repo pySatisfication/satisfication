@@ -10,6 +10,9 @@ REDIS_HOST = 'localhost'
 REDIS_PORT = 6379
 
 REDIS_KEY_VALID_CT = 'all_valid_ct'
+REDIS_KEY_DEPTH_PREFIX = 'rt_depth_'
+REDIS_KEY_MSCT = 'm_sm_ct'
+REDIS_KEY_CT_LIST = 'main_page_ct_lst'
 
 class RedisHandler(object):
     def __init__(self):

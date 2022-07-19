@@ -36,7 +36,7 @@ NUM_KLINE_HANDLER = 6
 LOCAL_QUEUE_SIZE = 1000000
 
 # logger
-index_config_file = 'conf/index_logger_config.json'
+index_config_file = 'conf/logger_config_index.json'
 with open(index_config_file, 'r', encoding='utf-8') as file:
     logging.config.dictConfig(json.load(file))
 logger = logging.getLogger("kindex_service")

@@ -134,7 +134,7 @@ class KHandlerThread(threading.Thread):
                  event,
                  data_source,
                  local_queue=None,
-                 config_file='logger_config.json'):
+                 config_file='../conf/logger_config_kline.json'):
         threading.Thread.__init__(self)
         # 线程名
         self.name = f"handler_{h_id}"
@@ -229,7 +229,7 @@ class KHandlerThread(threading.Thread):
         while True:
             self._closeout_event.wait()
             while self._closeout_event.isSet():
-                time.sleep(1)
+                time.sleep(0.5)
 
                 now_dt = datetime.datetime.now()
                 now_dt_str = dt_util.str_from_dt(now_dt)    # 20220522 15:15:00
@@ -241,11 +241,14 @@ class KHandlerThread(threading.Thread):
                 #    self._closeout_event.clear()
 
                 # 主次合约检测
+                start_ms = time.time()
                 self.main_ct_check()
+                end_ms = time.time()
 
                 # 心跳检测
                 if now_time[-2:] == '00':
-                    self.logger.info('[gen_cloing_kline]now_time:{}'.format(now_time))
+                    self.logger.info('[gen_cloing_kline]now_time:{}, cost of main ct checking:{}'.format(
+                        now_time, end_ms - start_ms))
 
                 # AUC1. 持久化
                 self.kline_save_db(now_time)
@@ -349,7 +352,35 @@ class KHandlerThread(threading.Thread):
             self.logger.warning('no contract recorded in redis...')
             return
 
+        # 2. 主次合约判断
+        d_cp_cv = {}
+        for ct_code in cts.split(','):
+            j_d = json.loads(self._redis_handler.get(redis_util.REDIS_KEY_DEPTH_PREFIX + ct_code))
+            code = j_d['symbol']
+            code_prefix = j_d['code_prefix']
+            volume = j_d['volume']
 
+            if not code_prefix or code_prefix == '':
+                continue
+            if code_prefix in d_cp_cv:
+                d_cp_cv[code_prefix][code] = volume
+            else:
+                d_cp_cv[code_prefix] = {code:volume}
+
+        d_cp_msct = {}
+        for k, v in d_cp_cv.items():
+            sort_lst = sorted(v.items(), key=lambda x:x[1], reverse=True)
+            idx = 0
+            main_ct, sec_ct = '', ''
+            for item in sort_lst:
+                if idx == 0:
+                    main_ct = item[0]
+                elif item[0] > main_ct:
+                    sec_ct = item[0]
+                    break
+                idx+=1
+            d_cp_msct[k] = main_ct + ',' + sec_ct
+        self._redis_handler.set(redis_util.REDIS_KEY_MSCT, json.dumps(d_cp_msct))
 
     def kline_save_db(self, now_time):
         if self._data_source == MQ_KAFKA and now_time in self.K_SAVE_TIMES:
