@@ -241,14 +241,13 @@ class KHandlerThread(threading.Thread):
                 #    self._closeout_event.clear()
 
                 # 主次合约检测
-                start_ms = time.time()
-                self.main_ct_check()
-                end_ms = time.time()
+                #start_ms = time.time()
+                #self.main_ct_check()
+                #end_ms = time.time()
 
                 # 心跳检测
                 if now_time[-2:] == '00':
-                    self.logger.info('[gen_cloing_kline]now_time:{}, cost of main ct checking:{}'.format(
-                        now_time, end_ms - start_ms))
+                    self.logger.info('[gen_cloing_kline]now_time:{}'.format(now_time))
 
                 # AUC1. 持久化
                 self.kline_save_db(now_time)
