@@ -42,6 +42,7 @@ class Depth(object):
             self.average_price = msg[32]
             self.action_day = msg[33]
             self.is_call_auction = False
+            # 现手
             self.volume_delta = 0.0
             self.open_interest_delta = 0.0
             self.turnover_delta = 0.0
@@ -49,6 +50,20 @@ class Depth(object):
 
             self.action_dt_str = self.action_day + ' ' + self.update_time
             self.action_dt = dt_util.dt_from_str(self.action_dt_str)
+
+            self.pre_open_interest = float(msg[34])
+            self.pre_settlement_price = float(msg[35])
+
+            # 日增仓
+            self.new_volume_day = self.open_interest - self.pre_open_interest
+            # 涨跌
+            self.rise = self.last_price - self.pre_settlement_price
+            # 涨幅
+            self.rise_percent = '{:.2%}'.format(self.rise / self.pre_settlement_price)
+
+            self.code_prefix = ''
+            self.c_name = ''
+            self.trade_unit = ''
         else:
             self.trading_day = msg[0]
             self.action_day = msg[0]
@@ -79,14 +94,19 @@ class Depth(object):
         self.trading_dt_str = self.trading_day + ' ' + new_update_time
 
     def __str__(self):
-        return "{},{},{},{},{},{},{},{},{}".format(
-            self.trading_day,
-            self.instrument_id,
-            self.update_time,
-            self.update_millisec,
-            self.last_price,
-            self.volume,
-            self.open_interest,
-            self.turnover,
-            self.action_day)
+        return '{"order":"%s", "name":"%s", "symbol":"%s", "code_prefix":"%s", "trade_unit":"%s",' \
+               '"last_price":"%s","volume_delta":"%s","bid_price_1":"%s",' \
+               '"ask_price_1":"%s","bid_volume_1":"%s","ask_volume_1":"%s",' \
+               '"rise":"%s","rise_percent":"%s",' \
+               '"volume":"%s","open_price":"%s","new_volume_day":"%s","turnover":"%s"' % (
+            "", self.c_name, self.instrument_id, self.code_prefix, self.trade_unit,
+            self.last_price, self.volume_delta,
+            self.bid_price1, self.ask_price1, self.bid_volume1, self.ask_volume1,
+            self.rise, self.rise_percent,
+            self.volume, self.open_price, self.new_volume_day, self.turnover)
 
+if __name__ == '__main__':
+    msg = '20220630,rb2207,4505.0,0,912.0,1.7976931348623157e+308,1.7976931348623157e+308,1.7976931348623157e+308,1.7976931348623157e+308,0.0,18:48:47,400,0.0,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,20220629,89204.0,6149.6'
+    d = Depth(msg.split(','))
+
+    print(str(d))

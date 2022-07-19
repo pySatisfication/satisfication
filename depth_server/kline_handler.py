@@ -10,22 +10,20 @@ import argparse
 import pymysql
 
 sys.path.append("..")
-from utils import dt_util,db_util,kafka_util
+from utils import dt_util,db_util,kafka_util,redis_util
 from depth import Depth
 from kline import KLine
 from tran_time_helper import *
+from ct_base_helper import CTBaseHelper
 
 if sys.version > '3':
     import queue as Queue
 else:
     import Queue
 
-import parallel as px
-from kafka import KafkaConsumer,KafkaProducer,TopicPartition
-
 # kafka
 MQ_KAFKA = 'kafka'
-CONSUMER_GROUP_ID = 'k_depth_c2'
+CONSUMER_GROUP_ID = 'k_depth_c5'
 AUTO_OFFSET_RESET = 'latest'
 FUTURES_DEPTH_TOPIC = 'FuturesDepthDataTest2'
 FUTURES_KLINE_TPOIC = 'FuturesKLineTest'
@@ -178,11 +176,14 @@ class KHandlerThread(threading.Thread):
             #                              bootstrap_servers=[KAFKA_SERVER])
             #self.consumer.assign([TopicPartition(FUTURES_DEPTH_TOPIC, self._hid)])
             #self.get_db_conn()
+
+            self._redis_handler = redis_util.RedisHandler()
         else:
             self._local_queue = local_queue
 
         # 持久化
         self.db_handler = db_util.DBHandler(config_file=config_file)
+        self.K_SAVE_TIMES = [TIME_THREE, TIME_TWELVE, TIME_FIFTEEN_THIRTY]
 
         # 休市&收盘
         # 守护线程同步事件
@@ -199,8 +200,11 @@ class KHandlerThread(threading.Thread):
         # 持久化队列
         self._db_queue = Queue.Queue(DB_QUEUE_SIZE)
 
+        # 过滤重复detph
         self.m_code_next_span = {}
         self.m_code_depth_status = {}
+
+        # 合约基础配置信息
 
         # logger
         with open(config_file, 'r', encoding='utf-8') as file:
@@ -236,28 +240,17 @@ class KHandlerThread(threading.Thread):
                 #if now_time == TIME_FIFTEEN_THIRTY:
                 #    self._closeout_event.clear()
 
+                # 主次合约检测
+                self.main_ct_check()
+
                 # 心跳检测
                 if now_time[-2:] == '00':
                     self.logger.info('[gen_cloing_kline]now_time:{}'.format(now_time))
 
-                # 持久化
-                save_times = [TIME_THREE, TIME_TWELVE, TIME_FIFTEEN_THIRTY]
-                if self._data_source == MQ_KAFKA and now_time in save_times:
-                    self.logger.info('[gen_cloing_kline]before, handler: {}, queue size: {}'.format(self._hid, self._db_queue.qsize()))
-                    while True:
-                        try:
-                            k_msg = self._db_queue.get(timeout=3)
-                            if k_msg:
-                                self.db_handler.insert_one(k_msg)
-                                # 离线debug是否获取到kline
-                                with open('kline_debug_' + str(self._hid), 'a') as w:
-                                    w.write(str(k_msg) + '\n')
-                        except Exception as e:
-                            self.logger.info('[gen_cloing_kline]kline data has been written into db, time: {}'.format(now_time))
-                            break
-                    self.logger.info('[gen_cloing_kline]after, handler: {}, queue size: {}'.format(self._hid, self._db_queue.qsize()))
+                # AUC1. 持久化
+                self.kline_save_db(now_time)
 
-                # 休市&停盘&收盘
+                # AUC2. 休市&停盘&收盘
                 mock_time = '20:34:00'
                 suspend_close_times = [TIME_TEN_SIXTEEN, TIME_ELEVEN_THIRTYONE,
                                        TIME_FIFTEEN_ONE, TIME_FIFTEEN_SIXTEEN,
@@ -349,6 +342,33 @@ class KHandlerThread(threading.Thread):
                             self._code_in_night.pop(code)
             self.logger.info('sleeping, wait closeout event being set...')
 
+    def main_ct_check(self):
+        # 1. 获取所有有效合约
+        cts = self._redis_handler.get(redis_util.REDIS_KEY_VALID_CT)
+        if not cts:
+            self.logger.warning('no contract recorded in redis...')
+            return
+
+
+
+    def kline_save_db(self, now_time):
+        if self._data_source == MQ_KAFKA and now_time in self.K_SAVE_TIMES:
+            self.logger.info(
+                '[gen_cloing_kline]before, handler: {}, queue size: {}'.format(self._hid, self._db_queue.qsize()))
+            while True:
+                try:
+                    k_msg = self._db_queue.get(timeout=3)
+                    if k_msg:
+                        self.db_handler.insert_one(k_msg)
+                        # 离线debug是否获取到kline
+                        with open('kline_debug_' + str(self._hid), 'a') as w:
+                            w.write(str(k_msg) + '\n')
+                except Exception as e:
+                    self.logger.info('[gen_cloing_kline]kline data has been written into db, time: {}'.format(now_time))
+                    break
+            self.logger.info(
+                '[gen_cloing_kline]after, handler: {}, queue size: {}'.format(self._hid, self._db_queue.qsize()))
+
     def cancel(self):
         self._isCanceled = True
 
@@ -366,19 +386,30 @@ class KHandlerThread(threading.Thread):
                     for msg_data in self.kafka_handler.consume():
                         depth_msg = msg_data.value.decode('utf-8').split(',')
 
-                        start = time.time()
-                        depth = Depth(depth_msg, start)
+                        start1 = time.time()
+                        depth = Depth(depth_msg, start1)
+                        depth.code_prefix = self._tth.get_code_prefix(depth.instrument_id)
                         if not self.check_data_valid(depth):
                             continue
 
                         # depth计算
                         self.consume(depth)
+                        end1 = time.time()
 
-                        end = time.time()
+                        # detph缓存
+                        start2 = time.time()
+                        key = 'rt_depth_' + depth.instrument_id
+                        base_d = self._cbh.get_base_d()
+                        if base_d:
+                            depth.c_name = base_d.c_name
+                            depth.ct_unit = base_d.ct_unit
+                        self._redis_handler.set(key, str(depth))
+                        end2 = time.time()
+
                         cnt_id += 1
                         if cnt_id % 1000 == 0:
-                            self.logger.info("[run]code:{}, bucket_id:{}, cost of depth:{}".format(
-                                depth.instrument_id, self._hid, end - start))
+                            self.logger.info("[run]code:{}, bucket_id:{}, cost of cal:{}, cost of caching:{}".format(
+                                depth.instrument_id, self._hid, end1 - start1, end2 - start2))
                         if cnt_id > 10000000:
                             cnt_id = 0
                 else:
@@ -407,7 +438,6 @@ class KHandlerThread(threading.Thread):
 
     def check_data_valid(self, depth):
         code = depth.instrument_id
-        code_prefix = self._tth.get_code_prefix(code)
 
         # if depth.update_time == '13:00:00' and depth.update_millisec == '200':
         #    logger.info("update_time == 13:00:00, sleep...")
@@ -447,9 +477,9 @@ class KHandlerThread(threading.Thread):
                 return False
 
         if depth.update_time[0:2] == '00':
-            if self._tth.check_close_time(code_prefix, CLOSE_TIME6):
+            if self._tth.check_close_time(depth.code_prefix, CLOSE_TIME6):
                 self.m_code_next_span[code] = '00,00,08,11'
-            elif self._tth.check_close_time(code_prefix, CLOSE_TIME7):
+            elif self._tth.check_close_time(depth.code_prefix, CLOSE_TIME7):
                 self.m_code_next_span[code] = '00,00,01,02'
         elif depth.update_time[0:2] == '02':
             self.m_code_next_span[code] = '02,02,08,11'
@@ -459,11 +489,11 @@ class KHandlerThread(threading.Thread):
             # 15点之后不过滤
             self.m_code_next_span[code] = ''
         elif depth.update_time[0:2] == '23':
-            if self._tth.check_close_time(code_prefix, CLOSE_TIME5):
+            if self._tth.check_close_time(depth.code_prefix, CLOSE_TIME5):
                 self.m_code_next_span[code] = '23,23,08,11'
-            elif self._tth.check_close_time(code_prefix, CLOSE_TIME6):
+            elif self._tth.check_close_time(depth.code_prefix, CLOSE_TIME6):
                 self.m_code_next_span[code] = '23,23,00,00'
-            elif self._tth.check_close_time(code_prefix, CLOSE_TIME7):
+            elif self._tth.check_close_time(depth.code_prefix, CLOSE_TIME7):
                 self.m_code_next_span[code] = '23,23,00,02'
         return True
 
@@ -891,10 +921,12 @@ class KHandlerThread(threading.Thread):
         # save kline
         if k_line.open > 0.0 and k_line.high > 0.0 and k_line.low > 0.0 and k_line.close > 0.0 and k_line.volume > 0.0:
             if self._data_source == MQ_KAFKA:
-                # kafka
+                # kafka, 输出给下游指标服务进行决策
                 self.kafka_handler.produce(k_line)
                 # mysql
                 self._db_queue.put(k_line)
+                # redis
+                self._redis_handler.set('k_' + code + '_' + period, str(k_line))
             else:
                 with open('k_line_{}.csv'.format(self._data_source), 'a') as w:
                     w.write(str(k_line) + '\n')
@@ -918,7 +950,7 @@ class KHandlerThread(threading.Thread):
         获取新的depth，非初始化进行正常更新
         '''
         code = cur_depth.instrument_id
-        code_prefix = self._tth.get_code_prefix(code)
+        code_prefix = cur_depth.code_prefix
 
         if close_out:
             assert mock_end_dt_str is not None
@@ -1218,7 +1250,7 @@ class KHandlerThread(threading.Thread):
     def consume(self, cur_depth):
         assert cur_depth is not None
         code = cur_depth.instrument_id
-        code_prefix = self._tth.get_code_prefix(code)
+        code_prefix = cur_depth.code_prefix
 
         # 集合竞价
         if self._tth.check_in(2, code, cur_depth.update_time):
@@ -1323,7 +1355,7 @@ def depth_data_iterate(data: 'str', sys_time: 'float'):
 
     depth = Depth(cur_msg, sys_time)
     code = depth.instrument_id
-    code_prefix = tth.get_code_prefix(code)
+    depth.code_prefix = tth.get_code_prefix(code)
 
     #if depth.update_time == '13:00:00' and depth.update_millisec == '200':
     #    logger.info("update_time == 13:00:00, sleep...")
@@ -1363,9 +1395,9 @@ def depth_data_iterate(data: 'str', sys_time: 'float'):
             return
 
     if depth.update_time[0:2] == '00':
-        if tth.check_close_time(code_prefix, CLOSE_TIME6):
+        if tth.check_close_time(depth.code_prefix, CLOSE_TIME6):
             m_code_next_span[code] = '00,00,08,11'
-        elif tth.check_close_time(code_prefix, CLOSE_TIME7):
+        elif tth.check_close_time(depth.code_prefix, CLOSE_TIME7):
             m_code_next_span[code] = '00,00,01,02'
     elif depth.update_time[0:2] == '02':
         m_code_next_span[code] = '02,02,08,11'
@@ -1375,11 +1407,11 @@ def depth_data_iterate(data: 'str', sys_time: 'float'):
         # 15点之后不过滤
         m_code_next_span[code] = ''
     elif depth.update_time[0:2] == '23':
-        if tth.check_close_time(code_prefix, CLOSE_TIME5):
+        if tth.check_close_time(depth.code_prefix, CLOSE_TIME5):
             m_code_next_span[code] = '23,23,08,11'
-        elif tth.check_close_time(code_prefix, CLOSE_TIME6):
+        elif tth.check_close_time(depth.code_prefix, CLOSE_TIME6):
             m_code_next_span[code] = '23,23,00,00'
-        elif tth.check_close_time(code_prefix, CLOSE_TIME7):
+        elif tth.check_close_time(depth.code_prefix, CLOSE_TIME7):
             m_code_next_span[code] = '23,23,00,02'
 
     # 计算分桶

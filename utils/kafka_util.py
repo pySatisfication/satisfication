@@ -7,7 +7,7 @@ from kline import KLine
 from kafka import KafkaConsumer,KafkaProducer,TopicPartition
 
 KAFKA_SERVER = 'localhost:9092'
-AUTO_COMMIT_INTERVAL_MS = 100
+AUTO_COMMIT_INTERVAL_MS = 1000
 
 class KafkaHandler(object):
     def __init__(self,

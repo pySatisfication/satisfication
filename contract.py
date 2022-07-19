@@ -275,13 +275,28 @@ class Contract(object):
                 m_var[k] = v[-1]
         return json.dumps(m_var)
 
+    def compare_time(self, time1, time2):
+        space_in_1 = ' ' in time1
+        space_in_2 = ' ' in time2
+        if space_in_1 and space_in_2:
+            day1 = time1.split(' ')[0]
+            day2 = time2.split(' ')[0]
+            if day1 == day2:
+                if time1 <= '15:15' and time1 >= '00:00' and time2 >= '21:00':
+                    return True
+            return time1 > time2
+        elif space_in_1 or space_in_2:
+            return False
+        else:
+            return time1 > time2
+
     def get_last_par_points(self, inter_time, event_name=None):
         '''
         traverse to get lastest parting points
         '''
         last_parting_points = []
         for idx in range(1, len(self._parting_points)):
-            if self._parting_points[-idx].end_time > inter_time:
+            if self.compare_time(self._parting_points[-idx].end_time, inter_time):
                 if self._parting_points[-idx].event_name == event_name:
                     last_parting_points.insert(0, self._parting_points[-idx])
             else:

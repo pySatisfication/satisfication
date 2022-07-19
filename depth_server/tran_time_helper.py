@@ -94,7 +94,7 @@ CLOSE_TIMES = [CLOSE_TIME1, CLOSE_TIME2,
 
 class TranTimeHelper(object):
     def __init__(self):
-        self.conf_file = './tran_time_conf'
+        self.conf_file = '../conf/tran_time_conf'
         self._code_time_spans = {}
         self._code_open_times = {}
         self._code_close_times = {}
