@@ -5,6 +5,7 @@ import logging
 import logging.config
 import argparse
 
+sys.path.append("..")
 from utils import redis_util
 
 redis_handler = redis_util.RedisHandler()
@@ -42,7 +43,11 @@ def main_ct_check():
     # 2. 主次合约判断
     d_cp_cv, d_code_depth = {}, {}
     for ct_code in cts.split(','):
-        j_d = json.loads(redis_handler.get(redis_util.REDIS_KEY_DEPTH_PREFIX + ct_code))
+        d_res = redis_handler.get(redis_util.REDIS_KEY_DEPTH_PREFIX + ct_code)
+        if not d_res:
+            continue
+        #print(d_res)
+        j_d = json.loads(d_res)
         d_code_depth[ct_code] = j_d
 
         code = j_d['symbol']
@@ -52,9 +57,9 @@ def main_ct_check():
         if not code_prefix or code_prefix == '':
             continue
         if code_prefix in d_cp_cv:
-            d_cp_cv[code_prefix][code] = volume
+            d_cp_cv[code_prefix][code] = float(volume)
         else:
-            d_cp_cv[code_prefix] = {code: volume}
+            d_cp_cv[code_prefix] = {code: float(volume)}
 
     d_cp_msct = {}
     for k, v in d_cp_cv.items():
@@ -88,7 +93,7 @@ if __name__ == '__main__':
         # 2. 打包生成首页合约列表
         page_ct_lst = {}
         # depth object array
-        d_obj_arr = {}
+        d_obj_arr = []
         ct_idx = 1
         for k, v in d_cp_msct.items():
             in_idx = 0

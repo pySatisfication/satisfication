@@ -30,7 +30,7 @@ class CTBaseHelper(object):
                                code_prefix=code_pre_lower,
                                category=items[4],
                                q_per_hand=int(items[5]),
-                               unit=items[6],
+                               trade_unit=items[6],
                                min_change_price=items[7],
                                ud_limit=items[8])
                 self._code_base[code_pre_lower] = d_item

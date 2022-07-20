@@ -27,7 +27,7 @@ class RedisHandler(object):
     def get(self, key):
         res = self._client.get(key)
         if res:
-            return res.decode()
+            return res.decode('unicode-escape')
         return None
 
     def exist_key(self, key):
@@ -69,8 +69,9 @@ class RedisHandler(object):
 if __name__ == '__main__':
     rd = RedisHandler()
 
-    cts = rd.get(REDIS_KEY_VALID_CT)
+    cts = rd.get(REDIS_KEY_CT_LIST)
     print(cts)
+    exit(0)
     if not cts:
         pass
 

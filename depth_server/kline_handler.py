@@ -434,7 +434,7 @@ class KHandlerThread(threading.Thread):
                         base_d = self._cbh.get_base_d(depth.code_prefix)
                         if base_d:
                             depth.c_name = base_d.c_name
-                            depth.ct_unit = base_d.ct_unit
+                            depth.trade_unit = base_d.trade_unit
                         self._redis_handler.set(key, str(depth))
                         end2 = time.time()
 
