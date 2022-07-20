@@ -8,7 +8,7 @@ sys.path.append('../')
 from ttseries import RedisHashTimeSeries
 from ttseries.exceptions import RepeatedValueError,RedisTimeSeriesError
 
-REDIS_HOST = '192.168.1.200'
+REDIS_HOST = 'localhost'
 REDIS_PORT = 6379
 
 REDIS_KEY_VALID_CT = 'all_valid_ct'
