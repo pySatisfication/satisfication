@@ -44,10 +44,11 @@ def main_ct_check():
     d_cp_cv, d_code_depth = {}, {}
     for ct_code in cts.split(','):
         d_res = redis_handler.get(redis_util.REDIS_KEY_DEPTH_PREFIX + ct_code)
+        print(d_res)
         if not d_res:
             continue
         #print(d_res)
-        j_d = json.loads(d_res)
+        j_d = json.loads(d_res, encoding='utf-8')
         d_code_depth[ct_code] = j_d
 
         code = j_d['symbol']

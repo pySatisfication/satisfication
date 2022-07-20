@@ -8,7 +8,7 @@ sys.path.append('../')
 from ttseries import RedisHashTimeSeries
 from ttseries.exceptions import RepeatedValueError,RedisTimeSeriesError
 
-REDIS_HOST = 'localhost'
+REDIS_HOST = '192.168.1.200'
 REDIS_PORT = 6379
 
 REDIS_KEY_VALID_CT = 'all_valid_ct'
@@ -18,7 +18,11 @@ REDIS_KEY_CT_LIST = 'main_page_ct_lst'
 
 class RedisHandler(object):
     def __init__(self):
-        self._client = StrictRedis(host=REDIS_HOST, port=REDIS_PORT)
+        self._client = StrictRedis(host=REDIS_HOST, 
+                                   port=REDIS_PORT, 
+                                   decode_responses=True,
+                                   charset='UTF-8',
+                                   encoding='UTF-8')
         self._tseries = RedisHashTimeSeries(redis_client=self._client)
 
     def set(self, key, value):
@@ -27,7 +31,7 @@ class RedisHandler(object):
     def get(self, key):
         res = self._client.get(key)
         if res:
-            return res.decode('unicode-escape')
+            return res.encode('utf-8').decode('unicode-escape')
         return None
 
     def exist_key(self, key):
@@ -69,8 +73,8 @@ class RedisHandler(object):
 if __name__ == '__main__':
     rd = RedisHandler()
 
-    cts = rd.get(REDIS_KEY_CT_LIST)
-    print(cts)
+    print(rd.get(REDIS_KEY_CT_LIST))
+    print(rd.get('rt_depth_m2208'))
     exit(0)
     if not cts:
         pass
