@@ -102,7 +102,7 @@ class KLine(object):
         #    tmp_arr = self._k_time.split(' ')
         #    k_time = tmp_arr[1].replace(':', '')
 
-        return "{},{},{},{},{},{},{},{},{}".format(
+        return "{},{},{},{},{},{},{}".format(
             self._k_time,
             self._open, self._high, self._low, self._close,
             self._volume, self._turnover)
