@@ -95,15 +95,15 @@ class KLine(object):
         self._turnover = turnover
 
     def __str__(self):
-        if self._period_type.endswith('s'):
-            tmp_arr = self._k_time.split(' ')
-            k_time = self._k_time
-        elif self._period_type.endswith('m'):
-            tmp_arr = self._k_time.split(' ')
-            k_time = tmp_arr[1].replace(':', '')
+        #if self._period_type.endswith('s'):
+        #    tmp_arr = self._k_time.split(' ')
+        #    k_time = self._k_time
+        #elif self._period_type.endswith('m'):
+        #    tmp_arr = self._k_time.split(' ')
+        #    k_time = tmp_arr[1].replace(':', '')
 
         return "{},{},{},{},{},{},{},{},{}".format(
-            self._code, k_time,
+            self._k_time,
             self._open, self._high, self._low, self._close,
-            self._volume, self._open_interest, self._turnover)
+            self._volume, self._turnover)
 

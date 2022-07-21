@@ -423,6 +423,7 @@ class KHandlerThread(threading.Thread):
                         if base_d:
                             depth.c_name = base_d.c_name
                             depth.trade_unit = base_d.trade_unit
+                            depth.trade_code = base_d.e_code
                         self._redis_handler.set(key, str(depth))
                         end2 = time.time()
 

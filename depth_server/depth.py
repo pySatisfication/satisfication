@@ -64,6 +64,7 @@ class Depth(object):
             self.code_prefix = ''
             self.c_name = ''
             self.trade_unit = ''
+            self.trade_code = ''
         else:
             self.trading_day = msg[0]
             self.action_day = msg[0]
@@ -98,12 +99,14 @@ class Depth(object):
                '"last_price":"%s","volume_delta":"%s","bid_price_1":"%s",' \
                '"ask_price_1":"%s","bid_volume_1":"%s","ask_volume_1":"%s",' \
                '"rise":"%s","rise_percent":"%s",' \
-               '"volume":"%s","open_interest":"%s","new_volume_day":"%s","turnover":"%s"}' % (
+               '"volume":"%s","open_interest":"%s","new_volume_day":"%s","turnover":"%s"},' \
+               '"open_price":"%s","trade_code":"%s"' % (
             "", self.c_name, self.instrument_id, self.code_prefix, self.trade_unit,
             self.last_price, self.volume_delta,
             self.bid_price1, self.ask_price1, self.bid_volume1, self.ask_volume1,
             self.rise, self.rise_percent,
-            self.volume, self.open_interest, self.new_volume_day, self.turnover)
+            self.volume, self.open_interest, self.new_volume_day, self.turnover,
+            self.open_price, self.trade_code)
 
 if __name__ == '__main__':
     msg = '20220630,rb2207,4505.0,0,912.0,1.7976931348623157e+308,1.7976931348623157e+308,1.7976931348623157e+308,1.7976931348623157e+308,0.0,18:48:47,400,0.0,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,0,0.0,20220629,89204.0,6149.6'
