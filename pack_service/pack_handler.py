@@ -7,6 +7,7 @@ import argparse
 
 sys.path.append("..")
 from utils import redis_util
+from constants.K_LINE import *
 
 redis_handler = redis_util.RedisHandler()
 
@@ -88,7 +89,7 @@ if __name__ == '__main__':
         # 1. 主次合约检测
         start_ms = time.time()
         d_cp_msct, d_code_depth = main_ct_check()
-        if len(d_cp_msct) == 0 and len(d_code_depth) == 0:
+        if len(d_cp_msct) == 0 or len(d_code_depth) == 0:
             continue
         end_ms = time.time()
 

@@ -11,6 +11,8 @@ import pymysql
 
 sys.path.append("..")
 from utils import dt_util,db_util,kafka_util,redis_util
+from constants.K_LINE import *
+from constants.K_TIME import *
 from depth import Depth
 from kline import KLine
 from tran_time_helper import *
@@ -37,20 +39,6 @@ LOCAL_QUEUE_SIZE = 1000000
 DB_QUEUE_SIZE = 1000000
 
 GLOBAL_CACHE_KEY = 'global_cache'
-KEY_K_15S = 'key_k_15s'
-KEY_K_30S = 'key_k_30s'
-KEY_K_1M  = 'key_k_1m'
-KEY_K_3M  = 'key_k_3m'
-KEY_K_5M  = 'key_k_5m'
-KEY_K_15M = 'key_k_15m'
-KEY_K_30M = 'key_k_30m'
-KEY_K_1H  = 'key_k_1h'
-KEY_K_2H  = 'key_k_2h'
-KEY_K_1D  = 'key_k_1d'
-M_PERIOD_KEY = [KEY_K_15S, KEY_K_30S,
-                KEY_K_1M, KEY_K_3M, KEY_K_5M, KEY_K_15M, KEY_K_30M,
-                KEY_K_1H, KEY_K_2H, KEY_K_1D]
-CZCE_CODES = ['SA','TA','SR','FG','CF','MA']
 
 def parse_args():
     """
@@ -958,7 +946,9 @@ class KHandlerThread(threading.Thread):
                 # mysql
                 self._db_queue.put(k_line)
                 # redis
-                self._redis_handler.set('k_' + code + '_' + period, str(k_line))
+                self._redis_handler.add(redis_util.REDIS_KEY_KLINE_PEROID.format(code, period),
+                                        time.time(),
+                                        str(k_line))
             else:
                 with open('k_line_{}.csv'.format(self._data_source), 'a') as w:
                     w.write(str(k_line) + '\n')
