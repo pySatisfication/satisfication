@@ -51,8 +51,8 @@ class Depth(object):
             self.action_dt_str = self.action_day + ' ' + self.update_time
             self.action_dt = dt_util.dt_from_str(self.action_dt_str)
 
-            self.pre_open_interest = float(msg[34])
-            self.pre_settlement_price = float(msg[35])
+            self.pre_open_interest = float(msg[34]) if len(msg) > 34 else 0.0
+            self.pre_settlement_price = float(msg[35]) if len(msg) > 35 else 1.0
 
             # 日增仓
             self.new_volume_day = self.open_interest - self.pre_open_interest

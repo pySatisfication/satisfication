@@ -38,13 +38,12 @@ def main_ct_check():
     cts = redis_handler.get(redis_util.REDIS_KEY_VALID_CT)
     if not cts:
         logger.warning('no contract recorded in redis...')
-        return
+        return {}, {}
 
     # 2. 主次合约判断
     d_cp_cv, d_code_depth = {}, {}
     for ct_code in cts.split(','):
         d_res = redis_handler.get(redis_util.REDIS_KEY_DEPTH_PREFIX + ct_code)
-        print(d_res)
         if not d_res:
             continue
         #print(d_res)
@@ -89,6 +88,8 @@ if __name__ == '__main__':
         # 1. 主次合约检测
         start_ms = time.time()
         d_cp_msct, d_code_depth = main_ct_check()
+        if len(d_cp_msct) == 0 and len(d_code_depth) == 0:
+            continue
         end_ms = time.time()
 
         # 2. 打包生成首页合约列表
@@ -111,5 +112,5 @@ if __name__ == '__main__':
                 in_idx += 1
         page_ct_lst['stock'] = d_obj_arr
 
-        redis_handler.set(redis_util.REDIS_KEY_CT_LIST, json.dumps(page_ct_lst))
+        redis_handler.set(redis_util.REDIS_KEY_CT_LIST, json.dumps(page_ct_lst, ensure_ascii=False))
         logger.info('pack success, cost of main ct checking:{}...'.format(end_ms - start_ms))

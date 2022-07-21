@@ -1,6 +1,8 @@
+# coding=utf-8
 import time
 import json
 import sys
+import logging
 from redis import StrictRedis
 from dateutil import parser
 
@@ -18,13 +20,15 @@ REDIS_KEY_CT_LIST = 'main_page_ct_lst'
 REDIS_KEY_KLINE_PEROID = 'k_{}_{}'
 
 class RedisHandler(object):
-    def __init__(self):
+    def __init__(self, config_file=None):
+        self.logger = logging.getLogger(__name__)
+
         self._client = StrictRedis(host=REDIS_HOST, 
                                    port=REDIS_PORT, 
-                                   decode_responses=True,
-                                   charset='UTF-8',
-                                   encoding='UTF-8')
-        self._tseries = RedisHashTimeSeries(redis_client=self._client)
+                                   decode_responses=True)
+        self._t_client = StrictRedis(host=REDIS_HOST, 
+                                   port=REDIS_PORT)
+        self._tseries = RedisHashTimeSeries(redis_client=self._t_client)
 
     def set(self, key, value):
         self._client.set(key, value)
@@ -32,7 +36,8 @@ class RedisHandler(object):
     def get(self, key):
         res = self._client.get(key)
         if res:
-            return res.encode('utf-8').decode('unicode-escape')
+            #return res.decode('unicode-escape')
+            return res
         return None
 
     def exist_key(self, key):
@@ -41,16 +46,38 @@ class RedisHandler(object):
     def flush(self):
         self._client.flushdb()
 
+    def add_lst(self, series_data):
+        if not series_data or not isinstance(timestamps, list):
+            self.logger.error("[add]parameter error.")
+            return False
+
+        try:
+            self._tseries.add_many(key, series_data)
+        except RepeatedValueError as e:
+            self.logger.error(e)
+            return False
+        except RedisTimeSeriesError as e:
+            self.logger.error(e)
+            return False
+        except Exception as e:
+            self.logger.error(e)
+            return False
+        return True
+
     def add(self, key, timestamps, value):
-        if key is None or timestamps is None or value is None:
-            raise ValueError("Input parameter cannot be empty.")
+        if not key or not timestamps or not value:
+            self.logger.error("[add]parameter is none.")
+            return False
 
         if not isinstance(timestamps, list):
             timestamps = [timestamps]
         if not isinstance(value, list):
             value = [value]
 
-        assert len(timestamps) == len(value)
+        if len(timestamps) != len(value):
+            self.logger.error("[add]length error")
+            return
+
         series_data = []
         for i in range(len(timestamps)):
             series_data.append((parser.parse(timestamps[i]).timestamp(), value))
@@ -58,11 +85,11 @@ class RedisHandler(object):
         try:
             self._tseries.add_many(key, series_data)
         except RepeatedValueError as e:
-            print(e)
+            self.logger.error(e)
             return False
         except RedisTimeSeriesError as e:
-            print(e)
-            raise RedisTimeSeriesError('save error')
+            self.logger.error(e)
+            return False
         return True
 
     def get_slice(self, key, s = None, e= None):
@@ -72,7 +99,42 @@ class RedisHandler(object):
         self._tseries.delete(key, start_timestamp=s, end_timestamp=e)
 
 if __name__ == '__main__':
+    s0 = time.time()
     rd = RedisHandler()
+    e0 = time.time()
+    print(e0-s0)
+
+    #print(tseries.count('IC2206'))
+    #print(rd.get_slice('IC2206', s = parser.parse('202110181420').timestamp(), e = parser.parse('202110181422').timestamp()))
+    #exit(0)
+
+    key = 'test_series'
+    #date1 = ['202101012001', '202101012005', '202101012006', '202101012007']
+    date1 = ['202101012001']
+    date2 = ['202101011950']
+    date3 = ['202101012005']
+    date4 = ['202101012003']
+
+    value = '{"a":11,"b":"2203"}'
+    
+    #add(tseries, None, None, None)
+    s1 = time.time()
+    rd.add(key, date4, [value, value])
+    #rd.delete(key, parser.parse('197001010000').timestamp(), parser.parse('202101012004').timestamp())
+    #print(rd.get_slice(key, s = parser.parse('202101012000').timestamp(), e = parser.parse('202101012008').timestamp()))
+    e1 = time.time()
+    print(e1-s1)
+    exit(0)
+    
+    print(rd.get_slice(key, s = parser.parse('202101012000').timestamp(), e = parser.parse('202101012008').timestamp()))
+    
+    rd.add(key, date2, value)
+    print(rd.get_slice(key, s = parser.parse('202101012000').timestamp(), e = parser.parse('202101012008').timestamp()))
+    
+    rd.add(key, date3, value)
+    print(rd.get_slice(key, s = parser.parse('202101011950').timestamp(), e = parser.parse('202101012008').timestamp()))
+    
+    print(rd.get_slice(key))
 
     print(rd.get(REDIS_KEY_CT_LIST))
     print(rd.get('rt_depth_m2208'))
@@ -108,34 +170,4 @@ if __name__ == '__main__':
 
     print(rd.get('test_k1'))
     print(rd.get('test_k2'))
-
-    #print(tseries.count('IC2206'))
-    print(rd.get_slice('IC2206', s = parser.parse('202110181420').timestamp(), e = parser.parse('202110181422').timestamp()))
-    exit(0)
-
-    rd.flush()
-
-    key = 'code_3'
-    #date1 = ['202101012001', '202101012005', '202101012006', '202101012007']
-    date1 = ['202101012001']
-    date2 = ['202101011950']
-    date3 = ['202101012300']
-
-    value = '{"a":11,"b":"22"}'
-    
-    #add(tseries, None, None, None)
-    #exit(0)
-    rd.add(key, date1, value)
-    print(rd.get_slice(key, s = parser.parse('202101012000').timestamp(), e = parser.parse('202101012008').timestamp()))
-    
-    rd.delete(key, parser.parse('202101012001').timestamp(), parser.parse('202101012002').timestamp())
-    print(rd.get_slice(key, s = parser.parse('202101012000').timestamp(), e = parser.parse('202101012008').timestamp()))
-    
-    rd.add(key, date2, value)
-    print(rd.get_slice(key, s = parser.parse('202101012000').timestamp(), e = parser.parse('202101012008').timestamp()))
-    
-    rd.add(key, date3, value)
-    print(rd.get_slice(key, s = parser.parse('202101011950').timestamp(), e = parser.parse('202101012008').timestamp()))
-    
-    print(rd.get_slice(key))
 
