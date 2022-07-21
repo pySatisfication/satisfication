@@ -47,7 +47,7 @@ class RedisHandler(object):
         self._client.flushdb()
 
     def add_lst(self, series_data):
-        if not series_data or not isinstance(timestamps, list):
+        if not series_data or not isinstance(series_data, list):
             self.logger.error("[add]parameter error.")
             return False
 
