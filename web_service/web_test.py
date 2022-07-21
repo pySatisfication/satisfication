@@ -5,8 +5,6 @@ from fastapi import FastAPI, Request, Body
 
 sys.path.append("..")
 from constants.K_LINE import *
-
-sys.path.append("..")
 from utils import redis_util
 
 app = FastAPI()
@@ -50,7 +48,7 @@ async def kline3(
         key_k = KEY_K_30S
 
     kline_cache_key = redis_util.REDIS_KEY_KLINE_PEROID.format(symbol, key_k)
-    k_res = redis_util.get_slice(kline_cache_key,
+    k_res = redis_handler.get_slice(kline_cache_key,
                                  s = parser.parse(begin_time).timestamp(),
                                  e = parser.parse(end_time).timestamp())
     j_res = {
@@ -72,3 +70,4 @@ async def kline3(
     j_res['data']['klines'] = [item[1] for item in k_res]
 
     return json.dumps(j_res, ensure_ascii=False)
+

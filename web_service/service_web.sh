@@ -18,7 +18,7 @@ start)
     # restart
     echo "----------"
     echo $(date)
-    uvicorn main:app --reload --host 192.168.1.200 --port 8000 > /opt/logs/web/main.log &
+    uvicorn web_test:app --reload --host 192.168.1.200 --port 8000 > /opt/logs/web/main.log &
     ;;
 status)
     pid=$(ps -ef | grep "uvicorn main:app" | grep -v grep | awk '{print $2}')

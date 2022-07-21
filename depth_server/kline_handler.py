@@ -25,8 +25,8 @@ else:
 
 # kafka
 MQ_KAFKA = 'kafka'
-CONSUMER_GROUP_ID = 'k_depth_c5'
-AUTO_OFFSET_RESET = 'latest'
+CONSUMER_GROUP_ID = 'k_depth_c4'
+AUTO_OFFSET_RESET = 'earliest'
 FUTURES_DEPTH_TOPIC = 'FuturesDepthDataTest2'
 FUTURES_KLINE_TPOIC = 'FuturesKLineTest'
 

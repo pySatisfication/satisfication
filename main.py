@@ -16,6 +16,7 @@ if sys.version > '3':
 else:
     import Queue
 
+sys.path.append("..")
 from utils import dt_util,db_util,kafka_util
 from depth_server.kline import KLine
 

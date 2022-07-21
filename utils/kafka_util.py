@@ -1,9 +1,11 @@
+import sys
 import time
 import logging
 import traceback
 
-from depth import Depth
-from kline import KLine
+sys.path.append("..")
+from depth_server.depth import Depth
+from depth_server.kline import KLine
 from kafka import KafkaConsumer,KafkaProducer,TopicPartition
 
 KAFKA_SERVER = 'localhost:9092'

@@ -108,7 +108,7 @@ if __name__ == '__main__':
     #print(rd.get_slice('IC2206', s = parser.parse('202110181420').timestamp(), e = parser.parse('202110181422').timestamp()))
     #exit(0)
 
-    key = 'test_series'
+    key = 'k_m2208_key_k_15s'
     #date1 = ['202101012001', '202101012005', '202101012006', '202101012007']
     date1 = '202101012001'
     date2 = '202101011950'
@@ -122,7 +122,8 @@ if __name__ == '__main__':
     s1 = time.time()
     rd.add(key, parser.parse(date5).timestamp(), value)
     #rd.delete(key, parser.parse('197001010000').timestamp(), parser.parse('202101012004').timestamp())
-    print(rd.get_slice(key, s = parser.parse('202101012000').timestamp(), e = parser.parse('202101012008').timestamp()))
+    #print(rd.get_slice(key, s = parser.parse('202101012000').timestamp(), e = parser.parse('202101012008').timestamp()))
+    print(rd.get_slice(key, s = parser.parse('202207211515').timestamp(), e = parser.parse('202207211530').timestamp()))
     e1 = time.time()
     print(e1-s1)
     exit(0)
