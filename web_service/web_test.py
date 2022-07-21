@@ -19,13 +19,14 @@ async def root():
 async def ct_info():
     return redis_handler.get(redis_util.REDIS_KEY_CT_LIST)
 
-@app.post("/api/kline3")
-async def kline3(
-    symbol: str = Body(..., title='合约代码', embed=True),
-    klt: int = Body(..., title="k线类型", embed=True),
-    begin_time: str = Body(..., embed=True),
-    end_time: str = Body(..., embed=True),
-):
+#async def kline3(
+#    symbol: str = Body(..., title='合约代码', embed=True),
+#    klt: int = Body(..., title="k线类型", embed=True),
+#    begin_time: str = Body(..., embed=True),
+#    end_time: str = Body(..., embed=True),
+#):
+@app.get("/api/kline3")
+async def kline3(symbol: str, klt: int, begin_time: str, end_time: str):
     if klt == 0:
         key_k = KEY_K_1D
     elif klt == 1:
