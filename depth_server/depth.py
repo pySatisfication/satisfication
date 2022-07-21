@@ -99,8 +99,8 @@ class Depth(object):
                '"last_price":"%s","volume_delta":"%s","bid_price_1":"%s",' \
                '"ask_price_1":"%s","bid_volume_1":"%s","ask_volume_1":"%s",' \
                '"rise":"%s","rise_percent":"%s",' \
-               '"volume":"%s","open_interest":"%s","new_volume_day":"%s","turnover":"%s"},' \
-               '"open_price":"%s","trade_code":"%s"' % (
+               '"volume":"%s","open_interest":"%s","new_volume_day":"%s","turnover":"%s",' \
+               '"open_price":"%s","trade_code":"%s"}' % (
             "", self.c_name, self.instrument_id, self.code_prefix, self.trade_unit,
             self.last_price, self.volume_delta,
             self.bid_price1, self.ask_price1, self.bid_volume1, self.ask_volume1,
