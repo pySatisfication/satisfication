@@ -1,0 +1,112 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">  
+<head>  
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />  
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>页面行情(K线图)</title>  
+<!-- 加载资源 -->
+
+<link rel="stylesheet" href="/static/content/css/tools.css" />
+<link rel="stylesheet" href="/static/jscommon/umychart.resource/font/iconfont.css" />
+
+<script src="/static/content/js/jquery.min.js"></script>
+<script src="/static/content/js/webfont.js"></script>
+<script src="/static/jscommon/umychart.network.js"></script>
+<script src="/static/jscommon/umychart.js"></script>
+<script src="/static/jscommon/umychart.complier.js"></script>
+<script src="/static/jscommon/umychart.index.data.js"></script>
+</head>  
+<body>
+<div id="kline" style="width: 900px;height:400px;position: relative;"></div>
+
+<script>
+
+//简单的把K线控件封装下
+function KLineChart(divKLine)
+{
+        this.DivKLine=divKLine;
+        this.Chart=JSChart.Init(divKLine);   //把K线图绑定到一个Div上
+
+        //K线配置信息
+        this.Option= {
+Type:'历史K线图',   //创建图形类型
+
+     Windows: //窗口指标
+             [
+             {Index:"MA", Modify:false,Change:false},
+             {Index:"VOL", Modify:false,Change:false},
+             {Index:"RSI", Modify:false,Change:false}, 
+             ], 
+
+             Symbol:'600000.sh',
+             IsAutoUpdate:true,       //是自动更新数据
+             //TradeIndex: {Index:'交易系统-BIAS'},    //交易系统
+
+             IsShowRightMenu:true,          //右键菜单
+             IsShowCorssCursorInfo:true,    //是否显示十字光标的刻度信息
+
+             KLine:  //K线设置
+             {
+DragMode:1,                 //拖拽模式 0 禁止拖拽 1 数据拖拽 2 区间选择
+         Right:1,                    //复权 0 不复权 1 前复权 2 后复权
+         Period:0,                   //周期 0 日线 1 周线 2 月线 3 年线 
+         MaxRequestDataCount:1000,   //日线数据个数
+         PageSize:50,               //一屏显示多少数据
+         //Info:["互动易","大宗交易",'龙虎榜',"调研","业绩预告","公告"],       //信息地雷
+         IsShowTooltip:true,                 //是否显示K线提示信息
+             },
+
+KLineTitle: //标题设置
+             {
+IsShowName:true,       //不显示股票名称
+           IsShowSettingInfo:true //不显示周期/复权
+             },
+
+Border: //边框
+             {
+Left:1,         //左边间距
+     Right:50,       //右边间距
+     Bottom:25,      //底部间距
+     Top:25          //顶部间距
+             },
+
+Frame:  //子框架设置
+             [
+             {SplitCount:3,StringFormat:0, IsShowLeftText:false},
+             {SplitCount:2,StringFormat:0, IsShowLeftText:false},
+             {SplitCount:2,StringFormat:0, IsShowLeftText:false}
+     ]
+        };
+
+        this.Create=function()  //创建图形
+        {
+                var self=this;
+                $(window).resize(function() { self.OnSize(); });    //绑定窗口大小变化事件
+
+                this.OnSize();  //让K线全屏
+                this.Chart.SetOption(this.Option);  //设置K线配置
+        }
+
+        this.OnSize=function()  //自适应大小调整
+        {
+                var height= $(window).height();
+                var width = $(window).width();
+                this.DivKLine.style.top='px';
+                this.DivKLine.style.left='px';
+                this.DivKLine.style.width=width+'px';
+                this.DivKLine.style.height=height+'px';
+                this.Chart.OnSize();
+        }
+}
+
+$(function () 
+                {
+                WebFont.load({ custom: { families: ['iconfont'] } });   //预加载下iconfont资源
+                var klineControl=new KLineChart(document.getElementById('kline'));
+                klineControl.Create();
+                })
+
+</script>  
+</body>  
+</html>
+

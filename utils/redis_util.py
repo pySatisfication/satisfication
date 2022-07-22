@@ -108,13 +108,13 @@ if __name__ == '__main__':
     #print(rd.get_slice('IC2206', s = parser.parse('202110181420').timestamp(), e = parser.parse('202110181422').timestamp()))
     #exit(0)
 
-    key = 'k_m2208_key_k_15s'
+    key = 'test_series'
     #date1 = ['202101012001', '202101012005', '202101012006', '202101012007']
     date1 = '202101012001'
     date2 = '202101011950'
     date3 = '202101012005'
     date4 = '202101012003'
-    date5 = '202101012007'
+    date5 = '202207211515'
 
     value = '{"a":11,"b":"2207"}'
     
